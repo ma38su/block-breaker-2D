@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import type { GameState, Block, KeyState } from '../types';
+import type { GameState, Block, KeyState, Particle, ScorePopup } from '../types';
 
 // ── キャンバスサイズ定数 ──────────────────────────────
 const CANVAS_WIDTH = 480;
@@ -39,6 +39,14 @@ const ROW_COLORS = [
 
 /** 行ごとの得点（上の行ほど高得点） */
 const ROW_POINTS = [100, 80, 60, 40, 20, 10];
+
+// ── パーティクル定数 ──────────────────────────────────
+/** ブロック1つ破壊時に生成するパーティクル数 */
+const PARTICLES_PER_BLOCK = 18;
+/** パーティクルの最大ライフ（フレーム数） */
+const PARTICLE_MAX_LIFE = 40;
+/** スコアポップアップの表示時間（フレーム数） */
+const SCORE_POPUP_LIFE = 45;
 
 /** 全ブロックを初期状態で生成する */
 function createBlocks(): Block[] {
@@ -121,7 +129,32 @@ function playBeep(frequency: number, duration: number, volume: number = 0.3) {
 }
 
 /**
- * スタート・ゲームオーバー・クリア画面の半透明オーバーレイを描画する
+ * ブロック破壊時にパーティクルを生成して配列に追加する
+ * @param particles  追加先のパーティクル配列
+ * @param cx         ブロック中心X座標
+ * @param cy         ブロック中心Y座標
+ * @param color      ブロックの色
+ */
+function spawnParticles(particles: Particle[], cx: number, cy: number, color: string) {
+  for (let i = 0; i < PARTICLES_PER_BLOCK; i++) {
+    const angle = (Math.PI * 2 * i) / PARTICLES_PER_BLOCK + Math.random() * 0.5;
+    // 速さにランダム性を持たせて広がりを演出
+    const speed = 1.5 + Math.random() * 3.5;
+    particles.push({
+      x: cx + (Math.random() - 0.5) * 20,
+      y: cy + (Math.random() - 0.5) * 10,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: PARTICLE_MAX_LIFE,
+      maxLife: PARTICLE_MAX_LIFE,
+      color,
+      size: 2 + Math.random() * 3,
+    });
+  }
+}
+
+/**
+ * スタート・ゲームオーバー・クリア・ポーズ画面の半透明オーバーレイを描画する
  * @param ctx    描画コンテキスト
  * @param width  キャンバス幅
  * @param height キャンバス高さ
@@ -169,6 +202,10 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   const lastTimeRef = useRef<number>(0);
   /** 破壊済みブロック数（速度計算に使用） */
   const blocksDestroyedRef = useRef<number>(0);
+  /** 画面上のパーティクル一覧 */
+  const particlesRef = useRef<Particle[]>([]);
+  /** 画面上のスコアポップアップ一覧 */
+  const scorePopupsRef = useRef<ScorePopup[]>([]);
 
   /** ライフ消失後にボールをパドル中央へリセットする */
   const resetBall = useCallback((state: GameState) => {
@@ -181,7 +218,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     state.ball.vy = -Math.abs(speed * Math.sin(angle));
   }, []);
 
-  /** 1フレーム分の物理演算・衝突判定を行う */
+  /** 1フレーム分の物理演算・衝突判定・パーティクル更新を行う */
   const update = useCallback(() => {
     const state = gameStateRef.current;
     if (state.status !== 'playing') return;
@@ -277,6 +314,22 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
         state.score += block.points;
         blocksDestroyedRef.current++;
 
+        // ── ブロック破壊エフェクトを生成 ──────────────────
+        const cx = block.x + block.width / 2;
+        const cy = block.y + block.height / 2;
+        spawnParticles(particlesRef.current, cx, cy, block.color);
+
+        // スコアポップアップを追加
+        scorePopupsRef.current.push({
+          x: cx,
+          y: cy,
+          text: `+${block.points}`,
+          life: SCORE_POPUP_LIFE,
+          maxLife: SCORE_POPUP_LIFE,
+          color: block.color,
+        });
+        // ─────────────────────────────────────────────────
+
         // 5ブロック破壊ごとにボールを少しずつ加速
         const speed = BALL_BASE_SPEED + Math.floor(blocksDestroyedRef.current / 5) * 0.3;
         const currentSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
@@ -298,6 +351,31 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
         // 行によって音の高さを変える（上段=高音）
         playBeep(660 - block.row * 60, 0.06, 0.35);
         blocksAlive--;
+      }
+    }
+
+    // パーティクルを更新（移動・重力・寿命減算）
+    const particles = particlesRef.current;
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.12; // 重力で落下感を演出
+      p.vx *= 0.97; // 摩擦で横方向を減衰
+      p.life--;
+      if (p.life <= 0) {
+        particles.splice(i, 1);
+      }
+    }
+
+    // スコアポップアップを更新（上昇・フェードアウト）
+    const popups = scorePopupsRef.current;
+    for (let i = popups.length - 1; i >= 0; i--) {
+      const popup = popups[i];
+      popup.y -= 0.8; // 上方向に浮き上がる
+      popup.life--;
+      if (popup.life <= 0) {
+        popups.splice(i, 1);
       }
     }
 
@@ -350,6 +428,35 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
     ctx.shadowBlur = 0;
 
+    // パーティクルを描画（ブロック・パドルより手前に重ねる）
+    const particles = particlesRef.current;
+    for (const p of particles) {
+      const ratio = p.life / p.maxLife; // 1→0 でフェードアウト
+      ctx.globalAlpha = ratio;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = p.color;
+      const size = p.size * ratio; // 縮小しながら消える
+      ctx.fillRect(p.x - size / 2, p.y - size / 2, size, size);
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // スコアポップアップを描画
+    const popups = scorePopupsRef.current;
+    for (const popup of popups) {
+      const ratio = popup.life / popup.maxLife;
+      ctx.globalAlpha = ratio;
+      ctx.shadowColor = popup.color;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = popup.color;
+      ctx.font = '9px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(popup.text, popup.x, popup.y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
     // パドルをグラデーション＋グロー付きで描画
     ctx.shadowColor = '#00ccff';
     ctx.shadowBlur = 15;
@@ -397,6 +504,14 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
         '← → KEYS OR MOUSE',
         'TO MOVE PADDLE',
       ]);
+    } else if (state.status === 'stopped') {
+      // ユーザーによるポーズ中のオーバーレイ
+      drawOverlay(ctx, CANVAS_WIDTH, CANVAS_HEIGHT, '#ffcc00', 'PAUSED', [
+        `SCORE: ${state.score}`,
+        '',
+        'PRESS P OR ESC',
+        'TO RESUME',
+      ]);
     } else if (state.status === 'gameover') {
       drawOverlay(ctx, CANVAS_WIDTH, CANVAS_HEIGHT, '#ff0055', 'GAME OVER', [
         `SCORE: ${state.score}`,
@@ -432,12 +547,14 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   /** ゲームを初期化して開始する */
   const startGame = useCallback(() => {
     blocksDestroyedRef.current = 0;
+    particlesRef.current = [];
+    scorePopupsRef.current = [];
     const newState = createInitialState();
     newState.status = 'playing';
     gameStateRef.current = newState;
   }, []);
 
-  /** キーダウンイベント: 矢印キーで移動、スペース/Enterでゲーム開始・再挑戦 */
+  /** キーダウンイベント: 矢印キーで移動、スペース/Enterでゲーム開始・再挑戦、P/Escでポーズ */
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       keyStateRef.current[e.key as keyof KeyState] = true;
@@ -447,6 +564,16 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       const status = gameStateRef.current.status;
       if (status === 'start' || status === 'gameover' || status === 'victory') {
         startGame();
+      }
+      e.preventDefault();
+    }
+    // P キーまたは Escape キーでポーズ切り替え
+    if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+      const status = gameStateRef.current.status;
+      if (status === 'playing') {
+        gameStateRef.current.status = 'stopped';
+      } else if (status === 'stopped') {
+        gameStateRef.current.status = 'playing';
       }
       e.preventDefault();
     }

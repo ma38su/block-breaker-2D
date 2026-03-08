@@ -1,5 +1,13 @@
-/** ゲームの状態を表す文字列リテラル型 */
-export type GameStatus = 'start' | 'playing' | 'paused' | 'gameover' | 'victory';
+/**
+ * ゲームの状態を表す文字列リテラル型
+ * - start    : タイトル画面
+ * - playing  : プレイ中
+ * - paused   : ライフ消失直後の自動停止
+ * - stopped  : ユーザーによるポーズ
+ * - gameover : ゲームオーバー
+ * - victory  : クリア
+ */
+export type GameStatus = 'start' | 'playing' | 'paused' | 'stopped' | 'gameover' | 'victory';
 
 /** ボールの座標・半径・速度を管理する型 */
 export interface Ball {
@@ -51,4 +59,41 @@ export interface GameState {
 export interface KeyState {
   ArrowLeft: boolean;
   ArrowRight: boolean;
+}
+
+/**
+ * ブロック破壊時に生成するパーティクル1粒の状態
+ * Canvas上で毎フレーム移動・縮小しながらフェードアウトする
+ */
+export interface Particle {
+  x: number;
+  y: number;
+  /** X方向の速度（ピクセル/フレーム） */
+  vx: number;
+  /** Y方向の速度（ピクセル/フレーム） */
+  vy: number;
+  /** 残りライフ（フレーム数、0になったら除去） */
+  life: number;
+  /** 生成時の最大ライフ（透明度計算の基準） */
+  maxLife: number;
+  /** 描画色（ブロックと同じネオンカラー） */
+  color: string;
+  /** パーティクルの初期サイズ（ピクセル） */
+  size: number;
+}
+
+/**
+ * スコア加算時に画面上に浮かび上がる得点ポップアップ
+ */
+export interface ScorePopup {
+  x: number;
+  y: number;
+  /** 表示するスコア文字列（例: "+100"） */
+  text: string;
+  /** 残りライフ（フレーム数） */
+  life: number;
+  /** 生成時の最大ライフ */
+  maxLife: number;
+  /** 描画色 */
+  color: string;
 }

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 背景 -->
+  <rect width="512" height="512" fill="#0a0a0f" rx="64"/>
+  <!-- ブロック（行1: 赤） -->
+  <rect x="40" y="70" width="100" height="38" fill="#ff0055" rx="5"/>
+  <rect x="152" y="70" width="100" height="38" fill="#ff0055" rx="5"/>
+  <rect x="264" y="70" width="100" height="38" fill="#ff0055" rx="5"/>
+  <rect x="376" y="70" width="100" height="38" fill="#ff0055" rx="5"/>
+  <!-- ブロック（行2: オレンジ） -->
+  <rect x="40" y="120" width="100" height="38" fill="#ff6600" rx="5"/>
+  <rect x="152" y="120" width="100" height="38" fill="#ff6600" rx="5"/>
+  <rect x="264" y="120" width="100" height="38" fill="#ff6600" rx="5"/>
+  <rect x="376" y="120" width="100" height="38" fill="#ff6600" rx="5"/>
+  <!-- ブロック（行3: 黄） -->
+  <rect x="40" y="170" width="100" height="38" fill="#ffcc00" rx="5"/>
+  <rect x="152" y="170" width="100" height="38" fill="#ffcc00" rx="5"/>
+  <rect x="264" y="170" width="100" height="38" fill="#ffcc00" rx="5"/>
+  <rect x="376" y="170" width="100" height="38" fill="#ffcc00" rx="5"/>
+  <!-- ブロック（行4: 緑） -->
+  <rect x="40" y="220" width="100" height="38" fill="#00ff88" rx="5"/>
+  <rect x="152" y="220" width="100" height="38" fill="#00ff88" rx="5"/>
+  <rect x="264" y="220" width="100" height="38" fill="#00ff88" rx="5"/>
+  <rect x="376" y="220" width="100" height="38" fill="#00ff88" rx="5"/>
+  <!-- ボール -->
+  <circle cx="256" cy="340" r="32" fill="#ffffff"/>
+  <!-- パドル -->
+  <rect x="140" y="410" width="232" height="32" fill="#00ccff" rx="10"/>
+</svg>
