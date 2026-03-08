@@ -71,4 +71,3 @@ export default defineConfig([
   },
 ])
 ```
-# block-breaker-2D
