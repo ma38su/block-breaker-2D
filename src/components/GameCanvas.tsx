@@ -1,13 +1,16 @@
 import { useRef, useEffect } from 'react';
 import { useGameLoop } from '../hooks/useGameLoop';
 
+// キャンバスの論理サイズ（CSS表示サイズとは独立）
 const CANVAS_WIDTH = 480;
 const CANVAS_HEIGHT = 640;
 
+/** ゲームキャンバスをレンダリングし、ゲームループをマウント・アンマウントするコンポーネント */
 export function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useGameLoop(canvasRef);
 
+  // キャンバスの論理解像度を初期化
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
