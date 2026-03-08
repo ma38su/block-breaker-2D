@@ -89,10 +89,68 @@ export const MULTI_HP_COLORS: readonly string[] = [
   '#ffffff', // hp=5
 ] as const;
 
-// ── HUD ボタン領域（タッチ判定に使用） ──────────────────
-/** HUD内の BGM ボタン中心X座標 */
-export const HUD_BGM_BUTTON_X = CANVAS_WIDTH / 2 - 30;
-/** HUD内のポーズボタン中心X座標 */
-export const HUD_PAUSE_BUTTON_X = CANVAS_WIDTH / 2 + 30;
-/** HUD ボタン行のY座標上限（この高さ以内のタップをボタン操作とみなす） */
-export const HUD_BUTTON_Y_MAX = 38;
+// ── HUD ボタン（大きめのタップ領域） ──────────────────────
+/** HUD 全体の高さ（px）。ここより下はゲームエリア */
+export const HUD_HEIGHT = 48;
+/** BGM ボタンの中心 X 座標 */
+export const HUD_BGM_BUTTON_X = CANVAS_WIDTH / 2 - 52;
+/** ポーズボタンの中心 X 座標 */
+export const HUD_PAUSE_BUTTON_X = CANVAS_WIDTH / 2 + 52;
+/** ボタン描画矩形の幅（px） */
+export const HUD_BTN_W = 80;
+/** ボタン描画矩形の高さ（px） */
+export const HUD_BTN_H = 34;
+/** タップ判定：ボタン中心からの X 方向半径（px） */
+export const HUD_BTN_HALF_W = 48;
+/** タップ判定：HUD 行の Y 座標上限 */
+export const HUD_BUTTON_Y_MAX = 48;
+
+// ── スタート画面ボタン（キャンバス座標） ──────────────────
+export const BTN_PLAY_X = 120;
+export const BTN_PLAY_Y = 320;
+export const BTN_PLAY_W = 240;
+export const BTN_PLAY_H = 56;
+
+export const BTN_SELECT_X = 100;
+export const BTN_SELECT_Y = 392;
+export const BTN_SELECT_W = 280;
+export const BTN_SELECT_H = 52;
+
+// ── ステージ選択画面ボタン ────────────────────────────────
+export const STAGE_BTN_X = 20;
+export const STAGE_BTN_W = CANVAS_WIDTH - 40; // 440
+export const STAGE_BTN_H = 70;
+export const STAGE_BTN_FIRST_Y = 96;
+export const STAGE_BTN_GAP = 8;
+
+export const STAGE_BACK_BTN_X = 120;
+export const STAGE_BACK_BTN_W = 240;
+export const STAGE_BACK_BTN_Y = 540;
+export const STAGE_BACK_BTN_H = 48;
+
+// ── ステージ情報 ──────────────────────────────────────────
+export const STAGE_NAMES = [
+  '軌道衛星',
+  'エネルギー炉',
+  '時空の歪み',
+  '暗号化エリア',
+  'マザー・コア',
+] as const;
+
+export const STAGE_THEME_COLORS = [
+  '#00ccff',
+  '#ff9900',
+  '#cc66ff',
+  '#00ff88',
+  '#ff3366',
+] as const;
+
+export const STAGE_GIMMICK_LABELS = [
+  'Multi-Layer Blocks',
+  'Bomb Chain Reaction',
+  'Hourglass + Moving Wall',
+  'Transparent + Scan Item',
+  'Orbiting Wall + Regen',
+] as const;
+
+export const STAGE_DIFFICULTIES = [1, 2, 3, 4, 5] as const;

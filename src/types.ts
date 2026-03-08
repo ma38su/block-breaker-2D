@@ -1,6 +1,7 @@
 /**
  * ゲームの状態を表す文字列リテラル型
  * - start        : タイトル画面
+ * - stageSelect  : ステージ選択画面
  * - playing      : プレイ中
  * - paused       : ライフ消失直後の自動停止
  * - stopped      : ユーザーによるポーズ
@@ -8,7 +9,7 @@
  * - stageCleared : ステージクリア（次ステージへ移行中）
  * - victory      : 全ステージクリア
  */
-export type GameStatus = 'start' | 'playing' | 'paused' | 'stopped' | 'gameover' | 'stageCleared' | 'victory';
+export type GameStatus = 'start' | 'stageSelect' | 'playing' | 'paused' | 'stopped' | 'gameover' | 'stageCleared' | 'victory';
 
 /**
  * ブロックの種類

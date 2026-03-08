@@ -7,7 +7,7 @@
  *   - フレームごとの draw（描画）呼び出し
  *   - キーボード・マウス・タッチ入力の受け取り（タップによる全操作に対応）
  *   - BGM のオン/オフ管理
- *   - ステージ進行管理
+ *   - ステージ進行管理・ステージ選択
  */
 import { useEffect, useRef, useCallback } from 'react';
 import type { GameState, KeyState, Particle, ScorePopup } from '../types';
@@ -19,7 +19,25 @@ import {
   SCAN_DURATION_FRAMES,
   HUD_BGM_BUTTON_X,
   HUD_PAUSE_BUTTON_X,
+  HUD_BTN_HALF_W,
   HUD_BUTTON_Y_MAX,
+  BTN_PLAY_X,
+  BTN_PLAY_Y,
+  BTN_PLAY_W,
+  BTN_PLAY_H,
+  BTN_SELECT_X,
+  BTN_SELECT_Y,
+  BTN_SELECT_W,
+  BTN_SELECT_H,
+  STAGE_BTN_X,
+  STAGE_BTN_W,
+  STAGE_BTN_H,
+  STAGE_BTN_FIRST_Y,
+  STAGE_BTN_GAP,
+  STAGE_BACK_BTN_X,
+  STAGE_BACK_BTN_W,
+  STAGE_BACK_BTN_Y,
+  STAGE_BACK_BTN_H,
 } from '../constants';
 import { playWallHit, playPaddleHit, playBlockBreak, playLifeLost } from '../game/audio';
 import {
@@ -41,6 +59,16 @@ import { drawFrame } from '../game/renderer';
 import { createInitialState } from '../game/state';
 import { startBGM, stopBGM, pauseBGM, resumeBGM } from '../game/bgm';
 
+/** ボタン矩形のヒットテスト */
+function hitTest(clickX: number, clickY: number, buttonX: number, buttonY: number, buttonWidth: number, buttonHeight: number): boolean {
+  return clickX >= buttonX && clickX <= buttonX + buttonWidth && clickY >= buttonY && clickY <= buttonY + buttonHeight;
+}
+
+/** パドル移動が許可されているステータスか判定する */
+function canMovePaddle(status: string): boolean {
+  return status === 'playing' || status === 'stopped';
+}
+
 /** ゲームループのカスタムフック */
 export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   const gameStateRef = useRef<GameState>(createInitialState(1));
@@ -60,10 +88,20 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     const newState = createInitialState(stage);
     newState.status = 'playing';
     gameStateRef.current = newState;
+    if (bgmEnabledRef.current) startBGM();
+  }, []);
 
-    if (bgmEnabledRef.current) {
-      startBGM();
-    }
+  /** ゲームを新規開始する（スコア・ライフを引き継ぐ） */
+  const continueToStage = useCallback((stage: number, score: number, lives: number) => {
+    blocksDestroyedRef.current = 0;
+    particlesRef.current = [];
+    scorePopupsRef.current = [];
+    const newState = createInitialState(stage);
+    newState.status = 'playing';
+    newState.score = score;
+    newState.lives = lives;
+    gameStateRef.current = newState;
+    if (bgmEnabledRef.current) startBGM();
   }, []);
 
   /** 1フレーム分の物理演算・衝突判定・エフェクト更新 */
@@ -74,41 +112,23 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     const keys = keyStateRef.current;
     const { paddle, ball } = state;
 
-    // キーボード入力によるパドル移動
-    if (keys.ArrowLeft) {
-      paddle.x = Math.max(0, paddle.x - PADDLE_SPEED);
-    }
-    if (keys.ArrowRight) {
-      paddle.x = Math.min(CANVAS_WIDTH - paddle.width, paddle.x + PADDLE_SPEED);
-    }
+    if (keys.ArrowLeft)  paddle.x = Math.max(0, paddle.x - PADDLE_SPEED);
+    if (keys.ArrowRight) paddle.x = Math.min(CANVAS_WIDTH - paddle.width, paddle.x + PADDLE_SPEED);
 
-    // ボールを速度ベクトル分だけ移動
     ball.x += ball.vx;
     ball.y += ball.vy;
 
-    // 壁・天井との衝突
-    if (resolveWallCollision(ball) !== null) {
-      playWallHit();
-    }
+    if (resolveWallCollision(ball) !== null) playWallHit();
+    if (resolvePaddleCollision(ball, paddle))  playPaddleHit();
 
-    // パドルとの衝突
-    if (resolvePaddleCollision(ball, paddle)) {
-      playPaddleHit();
-    }
-
-    // 移動障害物の更新・衝突判定
     for (const obs of state.obstacles) {
       updateObstacle(obs);
-      if (resolveObstacleCollision(ball, obs)) {
-        playWallHit();
-      }
+      if (resolveObstacleCollision(ball, obs)) playWallHit();
     }
 
-    // ボールが画面下端を越えた場合（ライフ消失）
     if (isBallOutOfBounds(ball)) {
       state.lives -= 1;
       playLifeLost();
-
       if (state.lives <= 0) {
         state.status = 'gameover';
         stopBGM();
@@ -125,42 +145,29 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       return;
     }
 
-    // スキャンタイマーを更新
-    if (state.scanTimer > 0) {
-      state.scanTimer -= 1;
-    }
+    if (state.scanTimer > 0) state.scanTimer -= 1;
 
-    // アイテム収集
     const collectedItemType = checkItemCollection(ball, state.items);
     if (collectedItemType === 'scan') {
       state.scanTimer = SCAN_DURATION_FRAMES;
       spawnParticles(particlesRef.current, ball.x, ball.y, '#00ffff');
     }
 
-    // 再生ブロック・透明ブロックのタイマー更新（physics モジュールに委譲）
     updateSpecialBlockTimers(state.blocks);
 
-    // ブロックとの衝突判定
     let clearableAlive = 0;
     let needRecount = false;
 
     for (const block of state.blocks) {
-      // クリア条件カウント（indestructible と regenerating はクリア条件外）
-      if (
-        block.alive &&
-        block.type !== 'indestructible' &&
-        block.type !== 'regenerating'
-      ) {
+      if (block.alive && block.type !== 'indestructible' && block.type !== 'regenerating') {
         clearableAlive++;
       }
-
       if (!block.alive) continue;
 
       const result = resolveBlockCollision(ball, block);
       if (result === null) continue;
 
       if (result === 'destroyed') {
-        // 爆弾ブロックを特別処理: 連鎖爆発
         if (block.type === 'bomb') {
           explodeBombs(block, state.blocks, (destroyed) => {
             state.score += destroyed.points;
@@ -171,7 +178,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
             spawnScorePopup(scorePopupsRef.current, cx, cy, destroyed.points, destroyed.color);
             playBlockBreak(destroyed.row);
           });
-          needRecount = true; // 連鎖爆発後にクリア条件を再確認
+          needRecount = true;
         } else {
           state.score += block.points;
           blocksDestroyedRef.current++;
@@ -182,35 +189,28 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
           playBlockBreak(block.row);
           clearableAlive--;
         }
-
         accelerateBallTo(ball, calcBallSpeed(blocksDestroyedRef.current));
       } else if (result === 'hit' && block.type === 'multi') {
-        // HP が減ったがまだ生存（レンダラーが hp から色を再計算するので block.color の更新は不要）
         spawnParticles(particlesRef.current, block.x + block.width / 2, block.y + block.height / 2, block.color);
         playBlockBreak(block.row);
       }
     }
 
-    // 爆弾連鎖後: 残存クリア対象ブロックを正確に数え直す
     if (needRecount) {
       clearableAlive = state.blocks.filter(
         (b) => b.alive && b.type !== 'indestructible' && b.type !== 'regenerating',
       ).length;
     }
 
-    // パーティクル・ポップアップを1フレーム分更新
     updateParticles(particlesRef.current);
     updateScorePopups(scorePopupsRef.current);
 
-    // クリア判定
     if (clearableAlive === 0) {
       const nextStage = state.currentStage + 1;
       if (nextStage > TOTAL_STAGES) {
-        // 全ステージクリア
         state.status = 'victory';
         stopBGM();
       } else {
-        // 次のステージへ（currentStage はクリアしたステージ番号のまま保持）
         state.status = 'stageCleared';
         stopBGM();
       }
@@ -223,14 +223,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
-    drawFrame(
-      ctx,
-      gameStateRef.current,
-      particlesRef.current,
-      scorePopupsRef.current,
-      bgmEnabledRef.current,
-    );
+    drawFrame(ctx, gameStateRef.current, particlesRef.current, scorePopupsRef.current, bgmEnabledRef.current);
   }, [canvasRef]);
 
   /** キャンバス座標のX値（スケール補正済み）を返す */
@@ -250,7 +243,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   }, [canvasRef]);
 
   /**
-   * HUD ボタン領域へのタップを処理する
+   * HUD ボタン領域へのタップを処理する（再生中 / 停止中のみ有効）
    * @returns true = ボタン操作だったので他の処理をスキップ
    */
   const handleHUDTap = useCallback((canvasX: number, canvasY: number): boolean => {
@@ -259,8 +252,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     const state = gameStateRef.current;
     const { status } = state;
 
-    // BGM ボタン（中央左）
-    if (Math.abs(canvasX - HUD_BGM_BUTTON_X) < 28) {
+    if (Math.abs(canvasX - HUD_BGM_BUTTON_X) < HUD_BTN_HALF_W) {
       bgmEnabledRef.current = !bgmEnabledRef.current;
       if (bgmEnabledRef.current) {
         if (status === 'playing') startBGM();
@@ -270,8 +262,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       return true;
     }
 
-    // ポーズボタン（中央右）
-    if (Math.abs(canvasX - HUD_PAUSE_BUTTON_X) < 28) {
+    if (Math.abs(canvasX - HUD_PAUSE_BUTTON_X) < HUD_BTN_HALF_W) {
       if (status === 'playing') {
         state.status = 'stopped';
         if (bgmEnabledRef.current) pauseBGM();
@@ -285,6 +276,101 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     return false;
   }, []);
 
+  /**
+   * スタート / ゲームオーバー / クリア系のオーバーレイ上のタップを処理する
+   * @returns true = 処理したのでパドル移動をスキップ
+   */
+  const handleOverlayTap = useCallback((canvasX: number, canvasY: number): boolean => {
+    const state = gameStateRef.current;
+    const { status } = state;
+
+    // ── スタート画面 ──────────────────────────────────────────
+    if (status === 'start') {
+      if (hitTest(canvasX, canvasY, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H)) {
+        startGame(1);
+        return true;
+      }
+      if (hitTest(canvasX, canvasY, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H)) {
+        state.status = 'stageSelect';
+        return true;
+      }
+      return false;
+    }
+
+    // ── ステージ選択画面 ──────────────────────────────────────
+    if (status === 'stageSelect') {
+      // 各ステージボタン
+      for (let i = 0; i < TOTAL_STAGES; i++) {
+        const btnY = STAGE_BTN_FIRST_Y + i * (STAGE_BTN_H + STAGE_BTN_GAP);
+        if (hitTest(canvasX, canvasY, STAGE_BTN_X, btnY, STAGE_BTN_W, STAGE_BTN_H)) {
+          startGame(i + 1);
+          return true;
+        }
+      }
+      // 戻るボタン
+      if (hitTest(canvasX, canvasY, STAGE_BACK_BTN_X, STAGE_BACK_BTN_Y, STAGE_BACK_BTN_W, STAGE_BACK_BTN_H)) {
+        state.status = 'start';
+        return true;
+      }
+      return true; // Prevent paddle movement while stage select is open
+    }
+
+    // ── ポーズ画面 ────────────────────────────────────────────
+    if (status === 'stopped') {
+      if (hitTest(canvasX, canvasY, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H)) {
+        state.status = 'playing';
+        if (bgmEnabledRef.current) resumeBGM();
+        return true;
+      }
+      if (hitTest(canvasX, canvasY, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H)) {
+        state.status = 'stageSelect';
+        stopBGM();
+        return true;
+      }
+      return false;
+    }
+
+    // ── ゲームオーバー / クリア全体 / ステージクリア ──────────
+    if (status === 'gameover') {
+      if (hitTest(canvasX, canvasY, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H)) {
+        startGame(state.currentStage);
+        return true;
+      }
+      if (hitTest(canvasX, canvasY, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H)) {
+        state.status = 'stageSelect';
+        return true;
+      }
+      return false;
+    }
+
+    if (status === 'stageCleared') {
+      if (hitTest(canvasX, canvasY, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H)) {
+        const nextStage = state.currentStage + 1;
+        continueToStage(nextStage, state.score, state.lives);
+        return true;
+      }
+      if (hitTest(canvasX, canvasY, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H)) {
+        state.status = 'stageSelect';
+        return true;
+      }
+      return false;
+    }
+
+    if (status === 'victory') {
+      if (hitTest(canvasX, canvasY, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H)) {
+        startGame(1);
+        return true;
+      }
+      if (hitTest(canvasX, canvasY, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H)) {
+        state.status = 'stageSelect';
+        return true;
+      }
+      return false;
+    }
+
+    return false;
+  }, [startGame, continueToStage]);
+
   /** キーダウンハンドラ */
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -294,29 +380,32 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     }
 
     if (e.key === ' ' || e.key === 'Enter') {
-      const { status } = gameStateRef.current;
-      if (status === 'start' || status === 'gameover' || status === 'victory') {
+      const state = gameStateRef.current;
+      const { status } = state;
+      if (status === 'start' || status === 'victory') {
         startGame(1);
+      } else if (status === 'gameover') {
+        startGame(state.currentStage);
       } else if (status === 'stageCleared') {
-        const nextStage = gameStateRef.current.currentStage + 1;
-        const prev = gameStateRef.current;
-        startGame(nextStage);
-        // スコアとライフを引き継ぐ
-        gameStateRef.current.score = prev.score;
-        gameStateRef.current.lives = prev.lives;
+        continueToStage(state.currentStage + 1, state.score, state.lives);
+      } else if (status === 'stageSelect') {
+        state.status = 'start';
       }
       e.preventDefault();
       return;
     }
 
     if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
-      const { status } = gameStateRef.current;
+      const state = gameStateRef.current;
+      const { status } = state;
       if (status === 'playing') {
-        gameStateRef.current.status = 'stopped';
+        state.status = 'stopped';
         if (bgmEnabledRef.current) pauseBGM();
       } else if (status === 'stopped') {
-        gameStateRef.current.status = 'playing';
+        state.status = 'playing';
         if (bgmEnabledRef.current) resumeBGM();
+      } else if (status === 'stageSelect') {
+        state.status = 'start';
       }
       e.preventDefault();
       return;
@@ -332,88 +421,51 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       }
       e.preventDefault();
     }
-  }, [startGame]);
+  }, [startGame, continueToStage]);
 
-  /** キーアップハンドラ */
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       keyStateRef.current[e.key as keyof KeyState] = false;
     }
   }, []);
 
-  /** マウス移動: パドルを追従させる */
   const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!canMovePaddle(gameStateRef.current.status)) return;
     const mouseX = toCanvasX(e.clientX);
-    gameStateRef.current.paddle.x = Math.max(
-      0,
-      Math.min(CANVAS_WIDTH - PADDLE_WIDTH, mouseX - PADDLE_WIDTH / 2),
-    );
+    gameStateRef.current.paddle.x = Math.max(0, Math.min(CANVAS_WIDTH - PADDLE_WIDTH, mouseX - PADDLE_WIDTH / 2));
   }, [toCanvasX]);
 
-  /** タッチ移動: パドルを追従させる */
   const handleTouchMove = useCallback((e: TouchEvent) => {
     e.preventDefault();
+    if (!canMovePaddle(gameStateRef.current.status)) return;
     const touchX = toCanvasX(e.touches[0].clientX);
-    gameStateRef.current.paddle.x = Math.max(
-      0,
-      Math.min(CANVAS_WIDTH - PADDLE_WIDTH, touchX - PADDLE_WIDTH / 2),
-    );
+    gameStateRef.current.paddle.x = Math.max(0, Math.min(CANVAS_WIDTH - PADDLE_WIDTH, touchX - PADDLE_WIDTH / 2));
   }, [toCanvasX]);
 
-  /** タッチ開始: HUD ボタン / ゲーム開始&再開 / パドル移動 */
   const handleTouchStart = useCallback((e: TouchEvent) => {
     e.preventDefault();
     const touch = e.touches[0];
     const canvasX = toCanvasX(touch.clientX);
     const canvasY = toCanvasY(touch.clientY);
 
-    // HUD ボタン（BGM / ポーズ）
+    // HUD ボタン（playing / stopped 中のみ）
     if (handleHUDTap(canvasX, canvasY)) return;
 
-    const { status } = gameStateRef.current;
+    // オーバーレイボタン
+    if (handleOverlayTap(canvasX, canvasY)) return;
 
-    if (status === 'start' || status === 'gameover' || status === 'victory') {
-      startGame(1);
-    } else if (status === 'stageCleared') {
-      const nextStage = gameStateRef.current.currentStage + 1;
-      const prev = gameStateRef.current;
-      startGame(nextStage);
-      gameStateRef.current.score = prev.score;
-      gameStateRef.current.lives = prev.lives;
-    } else if (status === 'stopped') {
-      // タップで再開
-      gameStateRef.current.status = 'playing';
-      if (bgmEnabledRef.current) resumeBGM();
-    }
+    // それ以外のタップでパドルを移動
+    gameStateRef.current.paddle.x = Math.max(0, Math.min(CANVAS_WIDTH - PADDLE_WIDTH, canvasX - PADDLE_WIDTH / 2));
+  }, [toCanvasX, toCanvasY, handleHUDTap, handleOverlayTap]);
 
-    // パドル位置も更新
-    gameStateRef.current.paddle.x = Math.max(
-      0,
-      Math.min(CANVAS_WIDTH - PADDLE_WIDTH, canvasX - PADDLE_WIDTH / 2),
-    );
-  }, [toCanvasX, toCanvasY, handleHUDTap, startGame]);
-
-  /** クリック: スタート・ゲームオーバー・クリア画面でゲームを開始・再挑戦 */
   const handleClick = useCallback((e: MouseEvent) => {
     const canvasX = toCanvasX(e.clientX);
     const canvasY = toCanvasY(e.clientY);
 
-    // HUD ボタン
     if (handleHUDTap(canvasX, canvasY)) return;
+    handleOverlayTap(canvasX, canvasY);
+  }, [toCanvasX, toCanvasY, handleHUDTap, handleOverlayTap]);
 
-    const { status } = gameStateRef.current;
-    if (status === 'start' || status === 'gameover' || status === 'victory') {
-      startGame(1);
-    } else if (status === 'stageCleared') {
-      const nextStage = gameStateRef.current.currentStage + 1;
-      const prev = gameStateRef.current;
-      startGame(nextStage);
-      gameStateRef.current.score = prev.score;
-      gameStateRef.current.lives = prev.lives;
-    }
-  }, [toCanvasX, toCanvasY, handleHUDTap, startGame]);
-
-  // イベントリスナーの登録・ゲームループ開始、アンマウント時クリーンアップ
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
