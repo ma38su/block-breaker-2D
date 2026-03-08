@@ -5,15 +5,22 @@
  *   - requestAnimationFrame によるループ管理
  *   - フレームごとの update（物理・衝突・エフェクト更新）呼び出し
  *   - フレームごとの draw（描画）呼び出し
- *   - キーボード・マウス・タッチ入力の受け取り
- *   - BGM のオン/オフ管理（デフォルト OFF、M キーでトグル）
- *
- * 物理演算・描画・音声・パーティクルの詳細ロジックは
- * src/game/ 以下の各モジュールに委譲している
+ *   - キーボード・マウス・タッチ入力の受け取り（タップによる全操作に対応）
+ *   - BGM のオン/オフ管理
+ *   - ステージ進行管理
  */
 import { useEffect, useRef, useCallback } from 'react';
 import type { GameState, KeyState, Particle, ScorePopup } from '../types';
-import { CANVAS_WIDTH, PADDLE_WIDTH, PADDLE_SPEED } from '../constants';
+import {
+  CANVAS_WIDTH,
+  PADDLE_WIDTH,
+  PADDLE_SPEED,
+  TOTAL_STAGES,
+  SCAN_DURATION_FRAMES,
+  HUD_BGM_BUTTON_X,
+  HUD_PAUSE_BUTTON_X,
+  HUD_BUTTON_Y_MAX,
+} from '../constants';
 import { playWallHit, playPaddleHit, playBlockBreak, playLifeLost } from '../game/audio';
 import {
   resetBall,
@@ -23,6 +30,11 @@ import {
   resolveBlockCollision,
   calcBallSpeed,
   accelerateBallTo,
+  explodeBombs,
+  updateObstacle,
+  resolveObstacleCollision,
+  checkItemCollection,
+  updateSpecialBlockTimers,
 } from '../game/physics';
 import { spawnParticles, spawnScorePopup, updateParticles, updateScorePopups } from '../game/particles';
 import { drawFrame } from '../game/renderer';
@@ -31,25 +43,28 @@ import { startBGM, stopBGM, pauseBGM, resumeBGM } from '../game/bgm';
 
 /** ゲームループのカスタムフック */
 export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
-  const gameStateRef = useRef<GameState>(createInitialState());
+  const gameStateRef = useRef<GameState>(createInitialState(1));
   const keyStateRef = useRef<KeyState>({ ArrowLeft: false, ArrowRight: false });
   const animFrameRef = useRef<number>(0);
-  /** 破壊済みブロック数（速度計算に使用） */
   const blocksDestroyedRef = useRef<number>(0);
-  /** 画面上のパーティクル一覧 */
   const particlesRef = useRef<Particle[]>([]);
-  /** 画面上のスコアポップアップ一覧 */
   const scorePopupsRef = useRef<ScorePopup[]>([]);
-  /**
-   * アンマウント済みフラグ
-   * setTimeout コールバックがアンマウント後に実行されても安全なように使用する
-   */
   const unmountedRef = useRef<boolean>(false);
-  /**
-   * BGM 有効フラグ（デフォルト OFF）
-   * ref にすることで再レンダーを起こさず即座に反映できる
-   */
   const bgmEnabledRef = useRef<boolean>(false);
+
+  /** ゲームを新規開始する */
+  const startGame = useCallback((stage = 1) => {
+    blocksDestroyedRef.current = 0;
+    particlesRef.current = [];
+    scorePopupsRef.current = [];
+    const newState = createInitialState(stage);
+    newState.status = 'playing';
+    gameStateRef.current = newState;
+
+    if (bgmEnabledRef.current) {
+      startBGM();
+    }
+  }, []);
 
   /** 1フレーム分の物理演算・衝突判定・エフェクト更新 */
   const update = useCallback(() => {
@@ -81,6 +96,14 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       playPaddleHit();
     }
 
+    // 移動障害物の更新・衝突判定
+    for (const obs of state.obstacles) {
+      updateObstacle(obs);
+      if (resolveObstacleCollision(ball, obs)) {
+        playWallHit();
+      }
+    }
+
     // ボールが画面下端を越えた場合（ライフ消失）
     if (isBallOutOfBounds(ball)) {
       state.lives -= 1;
@@ -88,10 +111,8 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
       if (state.lives <= 0) {
         state.status = 'gameover';
-        stopBGM(); // ゲームオーバー時に BGM を停止
+        stopBGM();
       } else {
-        // 短い自動停止（paused）後にボールをリセットして再開
-        // unmountedRef でアンマウント後のステート書き換えを防ぐ
         state.status = 'paused';
         const capturedState = state;
         const capturedDestroyed = blocksDestroyedRef.current;
@@ -104,40 +125,95 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       return;
     }
 
+    // スキャンタイマーを更新
+    if (state.scanTimer > 0) {
+      state.scanTimer -= 1;
+    }
+
+    // アイテム収集
+    const collectedItemType = checkItemCollection(ball, state.items);
+    if (collectedItemType === 'scan') {
+      state.scanTimer = SCAN_DURATION_FRAMES;
+      spawnParticles(particlesRef.current, ball.x, ball.y, '#00ffff');
+    }
+
+    // 再生ブロック・透明ブロックのタイマー更新（physics モジュールに委譲）
+    updateSpecialBlockTimers(state.blocks);
+
     // ブロックとの衝突判定
-    let blocksAlive = 0;
+    let clearableAlive = 0;
+    let needRecount = false;
+
     for (const block of state.blocks) {
-      if (!block.alive) {
-        continue;
+      // クリア条件カウント（indestructible と regenerating はクリア条件外）
+      if (
+        block.alive &&
+        block.type !== 'indestructible' &&
+        block.type !== 'regenerating'
+      ) {
+        clearableAlive++;
       }
-      blocksAlive++;
 
-      if (resolveBlockCollision(ball, block)) {
-        block.alive = false;
-        state.score += block.points;
-        blocksDestroyedRef.current++;
+      if (!block.alive) continue;
 
-        // ブロック破壊エフェクトを生成
-        const cx = block.x + block.width / 2;
-        const cy = block.y + block.height / 2;
-        spawnParticles(particlesRef.current, cx, cy, block.color);
-        spawnScorePopup(scorePopupsRef.current, cx, cy, block.points, block.color);
+      const result = resolveBlockCollision(ball, block);
+      if (result === null) continue;
 
-        // 5ブロック破壊ごとに加速
+      if (result === 'destroyed') {
+        // 爆弾ブロックを特別処理: 連鎖爆発
+        if (block.type === 'bomb') {
+          explodeBombs(block, state.blocks, (destroyed) => {
+            state.score += destroyed.points;
+            blocksDestroyedRef.current++;
+            const cx = destroyed.x + destroyed.width / 2;
+            const cy = destroyed.y + destroyed.height / 2;
+            spawnParticles(particlesRef.current, cx, cy, destroyed.color);
+            spawnScorePopup(scorePopupsRef.current, cx, cy, destroyed.points, destroyed.color);
+            playBlockBreak(destroyed.row);
+          });
+          needRecount = true; // 連鎖爆発後にクリア条件を再確認
+        } else {
+          state.score += block.points;
+          blocksDestroyedRef.current++;
+          const cx = block.x + block.width / 2;
+          const cy = block.y + block.height / 2;
+          spawnParticles(particlesRef.current, cx, cy, block.color);
+          spawnScorePopup(scorePopupsRef.current, cx, cy, block.points, block.color);
+          playBlockBreak(block.row);
+          clearableAlive--;
+        }
+
         accelerateBallTo(ball, calcBallSpeed(blocksDestroyedRef.current));
-
+      } else if (result === 'hit' && block.type === 'multi') {
+        // HP が減ったがまだ生存（レンダラーが hp から色を再計算するので block.color の更新は不要）
+        spawnParticles(particlesRef.current, block.x + block.width / 2, block.y + block.height / 2, block.color);
         playBlockBreak(block.row);
-        blocksAlive--;
       }
+    }
+
+    // 爆弾連鎖後: 残存クリア対象ブロックを正確に数え直す
+    if (needRecount) {
+      clearableAlive = state.blocks.filter(
+        (b) => b.alive && b.type !== 'indestructible' && b.type !== 'regenerating',
+      ).length;
     }
 
     // パーティクル・ポップアップを1フレーム分更新
     updateParticles(particlesRef.current);
     updateScorePopups(scorePopupsRef.current);
 
-    if (blocksAlive === 0) {
-      state.status = 'victory';
-      stopBGM(); // クリア時に BGM を停止
+    // クリア判定
+    if (clearableAlive === 0) {
+      const nextStage = state.currentStage + 1;
+      if (nextStage > TOTAL_STAGES) {
+        // 全ステージクリア
+        state.status = 'victory';
+        stopBGM();
+      } else {
+        // 次のステージへ（currentStage はクリアしたステージ番号のまま保持）
+        state.status = 'stageCleared';
+        stopBGM();
+      }
     }
   }, []);
 
@@ -157,22 +233,59 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     );
   }, [canvasRef]);
 
-  /** ゲームを初期化して開始する */
-  const startGame = useCallback(() => {
-    blocksDestroyedRef.current = 0;
-    particlesRef.current = [];
-    scorePopupsRef.current = [];
-    const newState = createInitialState();
-    newState.status = 'playing';
-    gameStateRef.current = newState;
+  /** キャンバス座標のX値（スケール補正済み）を返す */
+  const toCanvasX = useCallback((clientX: number): number => {
+    const canvas = canvasRef.current;
+    if (!canvas) return 0;
+    const rect = canvas.getBoundingClientRect();
+    return (clientX - rect.left) * (CANVAS_WIDTH / rect.width);
+  }, [canvasRef]);
 
-    // BGM が有効なら再生開始
-    if (bgmEnabledRef.current) {
-      startBGM();
+  /** キャンバス座標のY値（スケール補正済み）を返す */
+  const toCanvasY = useCallback((clientY: number): number => {
+    const canvas = canvasRef.current;
+    if (!canvas) return 0;
+    const rect = canvas.getBoundingClientRect();
+    return (clientY - rect.top) * (CANVAS_WIDTH / rect.width);
+  }, [canvasRef]);
+
+  /**
+   * HUD ボタン領域へのタップを処理する
+   * @returns true = ボタン操作だったので他の処理をスキップ
+   */
+  const handleHUDTap = useCallback((canvasX: number, canvasY: number): boolean => {
+    if (canvasY > HUD_BUTTON_Y_MAX) return false;
+
+    const state = gameStateRef.current;
+    const { status } = state;
+
+    // BGM ボタン（中央左）
+    if (Math.abs(canvasX - HUD_BGM_BUTTON_X) < 28) {
+      bgmEnabledRef.current = !bgmEnabledRef.current;
+      if (bgmEnabledRef.current) {
+        if (status === 'playing') startBGM();
+      } else {
+        stopBGM();
+      }
+      return true;
     }
+
+    // ポーズボタン（中央右）
+    if (Math.abs(canvasX - HUD_PAUSE_BUTTON_X) < 28) {
+      if (status === 'playing') {
+        state.status = 'stopped';
+        if (bgmEnabledRef.current) pauseBGM();
+      } else if (status === 'stopped') {
+        state.status = 'playing';
+        if (bgmEnabledRef.current) resumeBGM();
+      }
+      return true;
+    }
+
+    return false;
   }, []);
 
-  /** キーダウン: 矢印キーで移動 / スペース・Enter でゲーム開始 / P・Esc でポーズ / M で BGM トグル */
+  /** キーダウンハンドラ */
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       keyStateRef.current[e.key as keyof KeyState] = true;
@@ -183,13 +296,19 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     if (e.key === ' ' || e.key === 'Enter') {
       const { status } = gameStateRef.current;
       if (status === 'start' || status === 'gameover' || status === 'victory') {
-        startGame();
+        startGame(1);
+      } else if (status === 'stageCleared') {
+        const nextStage = gameStateRef.current.currentStage + 1;
+        const prev = gameStateRef.current;
+        startGame(nextStage);
+        // スコアとライフを引き継ぐ
+        gameStateRef.current.score = prev.score;
+        gameStateRef.current.lives = prev.lives;
       }
       e.preventDefault();
       return;
     }
 
-    // P / Escape キーでユーザーポーズ切り替え（stopped ↔ playing）
     if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
       const { status } = gameStateRef.current;
       if (status === 'playing') {
@@ -203,82 +322,98 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       return;
     }
 
-    // M キーで BGM のオン/オフをトグル
     if (e.key === 'm' || e.key === 'M') {
       bgmEnabledRef.current = !bgmEnabledRef.current;
       const { status } = gameStateRef.current;
       if (bgmEnabledRef.current) {
-        // オンにした: プレイ中なら即座に再生開始
         if (status === 'playing') startBGM();
       } else {
-        // オフにした: 再生中なら即座に停止
         stopBGM();
       }
       e.preventDefault();
     }
   }, [startGame]);
 
-  /** キーアップ: 矢印キーの押下状態を解除 */
+  /** キーアップハンドラ */
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       keyStateRef.current[e.key as keyof KeyState] = false;
     }
   }, []);
 
-  /** マウス移動: キャンバスのスケールを考慮してパドルを追従させる */
+  /** マウス移動: パドルを追従させる */
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = CANVAS_WIDTH / rect.width;
-    const mouseX = (e.clientX - rect.left) * scaleX;
+    const mouseX = toCanvasX(e.clientX);
     gameStateRef.current.paddle.x = Math.max(
       0,
       Math.min(CANVAS_WIDTH - PADDLE_WIDTH, mouseX - PADDLE_WIDTH / 2),
     );
-  }, [canvasRef]);
+  }, [toCanvasX]);
 
-  /** タッチ移動: スマートフォンでのパドル操作 */
+  /** タッチ移動: パドルを追従させる */
   const handleTouchMove = useCallback((e: TouchEvent) => {
     e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = CANVAS_WIDTH / rect.width;
-    const touchX = (e.touches[0].clientX - rect.left) * scaleX;
+    const touchX = toCanvasX(e.touches[0].clientX);
     gameStateRef.current.paddle.x = Math.max(
       0,
       Math.min(CANVAS_WIDTH - PADDLE_WIDTH, touchX - PADDLE_WIDTH / 2),
     );
-  }, [canvasRef]);
+  }, [toCanvasX]);
 
-  /** タッチ開始: スタート・ゲームオーバー・クリア画面でゲームを開始し、パドル位置も更新 */
+  /** タッチ開始: HUD ボタン / ゲーム開始&再開 / パドル移動 */
   const handleTouchStart = useCallback((e: TouchEvent) => {
     e.preventDefault();
+    const touch = e.touches[0];
+    const canvasX = toCanvasX(touch.clientX);
+    const canvasY = toCanvasY(touch.clientY);
+
+    // HUD ボタン（BGM / ポーズ）
+    if (handleHUDTap(canvasX, canvasY)) return;
+
     const { status } = gameStateRef.current;
+
     if (status === 'start' || status === 'gameover' || status === 'victory') {
-      startGame();
+      startGame(1);
+    } else if (status === 'stageCleared') {
+      const nextStage = gameStateRef.current.currentStage + 1;
+      const prev = gameStateRef.current;
+      startGame(nextStage);
+      gameStateRef.current.score = prev.score;
+      gameStateRef.current.lives = prev.lives;
+    } else if (status === 'stopped') {
+      // タップで再開
+      gameStateRef.current.status = 'playing';
+      if (bgmEnabledRef.current) resumeBGM();
     }
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = CANVAS_WIDTH / rect.width;
-    const touchX = (e.touches[0].clientX - rect.left) * scaleX;
+
+    // パドル位置も更新
     gameStateRef.current.paddle.x = Math.max(
       0,
-      Math.min(CANVAS_WIDTH - PADDLE_WIDTH, touchX - PADDLE_WIDTH / 2),
+      Math.min(CANVAS_WIDTH - PADDLE_WIDTH, canvasX - PADDLE_WIDTH / 2),
     );
-  }, [canvasRef, startGame]);
+  }, [toCanvasX, toCanvasY, handleHUDTap, startGame]);
 
   /** クリック: スタート・ゲームオーバー・クリア画面でゲームを開始・再挑戦 */
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: MouseEvent) => {
+    const canvasX = toCanvasX(e.clientX);
+    const canvasY = toCanvasY(e.clientY);
+
+    // HUD ボタン
+    if (handleHUDTap(canvasX, canvasY)) return;
+
     const { status } = gameStateRef.current;
     if (status === 'start' || status === 'gameover' || status === 'victory') {
-      startGame();
+      startGame(1);
+    } else if (status === 'stageCleared') {
+      const nextStage = gameStateRef.current.currentStage + 1;
+      const prev = gameStateRef.current;
+      startGame(nextStage);
+      gameStateRef.current.score = prev.score;
+      gameStateRef.current.lives = prev.lives;
     }
-  }, [startGame]);
+  }, [toCanvasX, toCanvasY, handleHUDTap, startGame]);
 
-  // イベントリスナーの登録・ゲームループの開始、アンマウント時のクリーンアップ
+  // イベントリスナーの登録・ゲームループ開始、アンマウント時クリーンアップ
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -292,9 +427,6 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('click', handleClick);
 
-    // ゲームループをエフェクト内のローカル関数として定義する
-    // useCallback の自己参照（循環依存）を避けるためのパターン
-    // update・draw は安定した useCallback なので、クロージャで安全に参照できる
     const loop = (): void => {
       update();
       draw();
@@ -303,10 +435,8 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     animFrameRef.current = requestAnimationFrame(loop);
 
     return () => {
-      // アンマウントフラグを立てて setTimeout コールバックの暴走を防ぐ
       unmountedRef.current = true;
       stopBGM();
-
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       canvas.removeEventListener('mousemove', handleMouseMove);

@@ -1,13 +1,25 @@
 /**
  * ゲームの状態を表す文字列リテラル型
- * - start    : タイトル画面
- * - playing  : プレイ中
- * - paused   : ライフ消失直後の自動停止
- * - stopped  : ユーザーによるポーズ
- * - gameover : ゲームオーバー
- * - victory  : クリア
+ * - start        : タイトル画面
+ * - playing      : プレイ中
+ * - paused       : ライフ消失直後の自動停止
+ * - stopped      : ユーザーによるポーズ
+ * - gameover     : ゲームオーバー
+ * - stageCleared : ステージクリア（次ステージへ移行中）
+ * - victory      : 全ステージクリア
  */
-export type GameStatus = 'start' | 'playing' | 'paused' | 'stopped' | 'gameover' | 'victory';
+export type GameStatus = 'start' | 'playing' | 'paused' | 'stopped' | 'gameover' | 'stageCleared' | 'victory';
+
+/**
+ * ブロックの種類
+ * - normal       : 通常ブロック（1回で破壊）
+ * - multi        : 多層ブロック（HP分だけ当てる必要がある）
+ * - bomb         : 爆弾ブロック（破壊時に周囲を連鎖爆発）
+ * - transparent  : 透明ブロック（衝突時だけ一瞬見える）
+ * - indestructible: 壊せないブロック（障害物、クリア条件に含まれない）
+ * - regenerating : 再生ブロック（破壊後一定時間で復活）
+ */
+export type BlockType = 'normal' | 'multi' | 'bomb' | 'transparent' | 'indestructible' | 'regenerating';
 
 /** ボールの座標・半径・速度を管理する型 */
 export interface Ball {
@@ -40,8 +52,55 @@ export interface Block {
   points: number;
   /** 生存フラグ（falseのとき描画・衝突判定をスキップ） */
   alive: boolean;
-  /** 所属する行（0始まり） */
+  /** 所属する行（0始まり）- サウンド計算に使用 */
   row: number;
+  /** ブロックの種類 */
+  type: BlockType;
+  /** 現在HP（multi ブロックはこれが0になるまで破壊されない） */
+  hp: number;
+  /** 最大HP（色の計算基準） */
+  maxHp: number;
+  /** 透明ブロックの一時表示タイマー（フレーム数、0以下で非表示） */
+  flashTimer: number;
+  /** 再生ブロックの復活カウントダウン（フレーム数、0で復活） */
+  regenTimer: number;
+}
+
+/**
+ * 移動障害物（ステージ3・5などに配置される壊せないオブジェクト）
+ * orbiting=false の場合は直線移動、orbiting=true の場合は円軌道移動
+ */
+export interface MovingObstacle {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** 直線移動時のX速度 */
+  vx: number;
+  /** 直線移動時のY速度 */
+  vy: number;
+  /** 円軌道移動モード */
+  orbiting: boolean;
+  /** 円軌道の中心X座標 */
+  pivotX: number;
+  /** 円軌道の中心Y座標 */
+  pivotY: number;
+  /** 円軌道の半径 */
+  orbitRadius: number;
+  /** 現在の角度（ラジアン） */
+  angle: number;
+  /** 角速度（ラジアン/フレーム） */
+  angularSpeed: number;
+}
+
+/** フィールド上のアイテム（スキャンアイテムなど） */
+export interface Item {
+  x: number;
+  y: number;
+  radius: number;
+  /** アイテムの種類: 'scan' = 透明ブロックを一定時間可視化 */
+  type: 'scan';
+  alive: boolean;
 }
 
 /** フレームごとに参照するゲーム全体の状態 */
@@ -53,6 +112,14 @@ export interface GameState {
   score: number;
   lives: number;
   level: number;
+  /** 現在のステージ番号（1始まり） */
+  currentStage: number;
+  /** フィールド上の移動障害物 */
+  obstacles: MovingObstacle[];
+  /** フィールド上のアイテム */
+  items: Item[];
+  /** スキャンエフェクトの残りフレーム数（0以下で無効） */
+  scanTimer: number;
 }
 
 /** キーボード入力の押下状態を追跡する型 */
