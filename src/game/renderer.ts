@@ -124,17 +124,34 @@ function drawBall(ctx: CanvasRenderingContext2D, state: GameState): void {
 }
 
 /**
- * HUD（スコア・ライフ）を画面上部に描画する
+ * HUD（スコア・ライフ・BGM インジケーター）を画面上部に描画する
+ * @param bgmEnabled BGM が ON かどうか
  */
-function drawHUD(ctx: CanvasRenderingContext2D, state: GameState): void {
-  ctx.fillStyle = '#ffffff';
+function drawHUD(ctx: CanvasRenderingContext2D, state: GameState, bgmEnabled: boolean): void {
   ctx.font = '12px "Press Start 2P", monospace';
 
+  // スコア（左寄せ）
+  ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'left';
   ctx.fillText(`SCORE: ${state.score}`, 10, 25);
 
+  // ライフ（右寄せ）
   ctx.textAlign = 'right';
   ctx.fillText(`LIVES: ${'♥'.repeat(state.lives)}`, CANVAS_WIDTH - 10, 25);
+
+  // BGM トグルインジケーター（中央）
+  // ON: 明るい緑でグロー / OFF: 暗いグレーで控えめに表示
+  ctx.textAlign = 'center';
+  if (bgmEnabled) {
+    ctx.fillStyle = '#00ff88';
+    ctx.shadowColor = '#00ff88';
+    ctx.shadowBlur = 8;
+  } else {
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.shadowBlur = 0;
+  }
+  ctx.fillText('♪', CANVAS_WIDTH / 2, 25);
+  ctx.shadowBlur = 0;
 }
 
 /**
@@ -172,16 +189,18 @@ function drawOverlay(
 
 /**
  * 1フレーム分のゲーム画面全体を描画するエントリーポイント
- * @param ctx      Canvas 2D コンテキスト
- * @param state    ゲーム状態
- * @param particles パーティクルリスト
- * @param popups   スコアポップアップリスト
+ * @param ctx        Canvas 2D コンテキスト
+ * @param state      ゲーム状態
+ * @param particles  パーティクルリスト
+ * @param popups     スコアポップアップリスト
+ * @param bgmEnabled BGM が ON かどうか（HUD インジケーター表示に使用）
  */
 export function drawFrame(
   ctx: CanvasRenderingContext2D,
   state: GameState,
   particles: Particle[],
   popups: ScorePopup[],
+  bgmEnabled: boolean,
 ): void {
   drawBackground(ctx);
   drawBlocks(ctx, state);
@@ -190,7 +209,7 @@ export function drawFrame(
   drawScorePopups(ctx, popups);
   drawPaddle(ctx, state);
   drawBall(ctx, state);
-  drawHUD(ctx, state);
+  drawHUD(ctx, state, bgmEnabled);
 
   // ゲーム状態に応じたオーバーレイを描画
   switch (state.status) {
@@ -201,6 +220,8 @@ export function drawFrame(
         '',
         '← → KEYS OR MOUSE',
         'TO MOVE PADDLE',
+        '',
+        'M: TOGGLE MUSIC',
       ]);
       break;
     case 'stopped':
@@ -210,6 +231,8 @@ export function drawFrame(
         '',
         'PRESS P OR ESC',
         'TO RESUME',
+        '',
+        'M: TOGGLE MUSIC',
       ]);
       break;
     case 'gameover':

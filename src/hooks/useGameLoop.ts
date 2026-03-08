@@ -6,17 +6,14 @@
  *   - フレームごとの update（物理・衝突・エフェクト更新）呼び出し
  *   - フレームごとの draw（描画）呼び出し
  *   - キーボード・マウス・タッチ入力の受け取り
+ *   - BGM のオン/オフ管理（デフォルト OFF、M キーでトグル）
  *
  * 物理演算・描画・音声・パーティクルの詳細ロジックは
  * src/game/ 以下の各モジュールに委譲している
  */
 import { useEffect, useRef, useCallback } from 'react';
 import type { GameState, KeyState, Particle, ScorePopup } from '../types';
-import {
-  CANVAS_WIDTH,
-  PADDLE_WIDTH,
-  PADDLE_SPEED,
-} from '../constants';
+import { CANVAS_WIDTH, PADDLE_WIDTH, PADDLE_SPEED } from '../constants';
 import { playWallHit, playPaddleHit, playBlockBreak, playLifeLost } from '../game/audio';
 import {
   resetBall,
@@ -30,6 +27,7 @@ import {
 import { spawnParticles, spawnScorePopup, updateParticles, updateScorePopups } from '../game/particles';
 import { drawFrame } from '../game/renderer';
 import { createInitialState } from '../game/state';
+import { startBGM, stopBGM, pauseBGM, resumeBGM } from '../game/bgm';
 
 /** ゲームループのカスタムフック */
 export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
@@ -48,10 +46,10 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
    */
   const unmountedRef = useRef<boolean>(false);
   /**
-   * ゲームループ関数の最新版を保持する ref
-   * useCallback の自己参照（循環依存）を避けるために使用する
+   * BGM 有効フラグ（デフォルト OFF）
+   * ref にすることで再レンダーを起こさず即座に反映できる
    */
-  const gameLoopRef = useRef<FrameRequestCallback>(() => {});
+  const bgmEnabledRef = useRef<boolean>(false);
 
   /** 1フレーム分の物理演算・衝突判定・エフェクト更新 */
   const update = useCallback(() => {
@@ -90,8 +88,9 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
       if (state.lives <= 0) {
         state.status = 'gameover';
+        stopBGM(); // ゲームオーバー時に BGM を停止
       } else {
-        // 短い自動停止（paused）後にボールをリセットして再開する
+        // 短い自動停止（paused）後にボールをリセットして再開
         // unmountedRef でアンマウント後のステート書き換えを防ぐ
         state.status = 'paused';
         const capturedState = state;
@@ -138,6 +137,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
     if (blocksAlive === 0) {
       state.status = 'victory';
+      stopBGM(); // クリア時に BGM を停止
     }
   }, []);
 
@@ -148,18 +148,14 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    drawFrame(ctx, gameStateRef.current, particlesRef.current, scorePopupsRef.current);
+    drawFrame(
+      ctx,
+      gameStateRef.current,
+      particlesRef.current,
+      scorePopupsRef.current,
+      bgmEnabledRef.current,
+    );
   }, [canvasRef]);
-
-  /** requestAnimationFrame のコールバック（update → draw を毎フレーム繰り返す） */
-  const gameLoop = useCallback(() => {
-    update();
-    draw();
-    animFrameRef.current = requestAnimationFrame(gameLoopRef.current);
-  }, [update, draw]);
-
-  // gameLoopRef を常に最新の gameLoop 関数に同期させる
-  gameLoopRef.current = gameLoop;
 
   /** ゲームを初期化して開始する */
   const startGame = useCallback(() => {
@@ -169,15 +165,21 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     const newState = createInitialState();
     newState.status = 'playing';
     gameStateRef.current = newState;
+
+    // BGM が有効なら再生開始
+    if (bgmEnabledRef.current) {
+      startBGM();
+    }
   }, []);
 
-  /** キーダウン: 矢印キーで移動 / スペース・Enter でゲーム開始 / P・Esc でポーズ切り替え */
+  /** キーダウン: 矢印キーで移動 / スペース・Enter でゲーム開始 / P・Esc でポーズ / M で BGM トグル */
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       keyStateRef.current[e.key as keyof KeyState] = true;
       e.preventDefault();
       return;
     }
+
     if (e.key === ' ' || e.key === 'Enter') {
       const { status } = gameStateRef.current;
       if (status === 'start' || status === 'gameover' || status === 'victory') {
@@ -186,13 +188,31 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       e.preventDefault();
       return;
     }
+
     // P / Escape キーでユーザーポーズ切り替え（stopped ↔ playing）
     if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
       const { status } = gameStateRef.current;
       if (status === 'playing') {
         gameStateRef.current.status = 'stopped';
+        if (bgmEnabledRef.current) pauseBGM();
       } else if (status === 'stopped') {
         gameStateRef.current.status = 'playing';
+        if (bgmEnabledRef.current) resumeBGM();
+      }
+      e.preventDefault();
+      return;
+    }
+
+    // M キーで BGM のオン/オフをトグル
+    if (e.key === 'm' || e.key === 'M') {
+      bgmEnabledRef.current = !bgmEnabledRef.current;
+      const { status } = gameStateRef.current;
+      if (bgmEnabledRef.current) {
+        // オンにした: プレイ中なら即座に再生開始
+        if (status === 'playing') startBGM();
+      } else {
+        // オフにした: 再生中なら即座に停止
+        stopBGM();
       }
       e.preventDefault();
     }
@@ -272,11 +292,20 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('click', handleClick);
 
-    animFrameRef.current = requestAnimationFrame(gameLoopRef.current);
+    // ゲームループをエフェクト内のローカル関数として定義する
+    // useCallback の自己参照（循環依存）を避けるためのパターン
+    // update・draw は安定した useCallback なので、クロージャで安全に参照できる
+    const loop = (): void => {
+      update();
+      draw();
+      animFrameRef.current = requestAnimationFrame(loop);
+    };
+    animFrameRef.current = requestAnimationFrame(loop);
 
     return () => {
       // アンマウントフラグを立てて setTimeout コールバックの暴走を防ぐ
       unmountedRef.current = true;
+      stopBGM();
 
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
@@ -286,5 +315,5 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       canvas.removeEventListener('click', handleClick);
       cancelAnimationFrame(animFrameRef.current);
     };
-  }, [canvasRef, handleKeyDown, handleKeyUp, handleMouseMove, handleTouchMove, handleTouchStart, handleClick]);
+  }, [canvasRef, update, draw, handleKeyDown, handleKeyUp, handleMouseMove, handleTouchMove, handleTouchStart, handleClick]);
 }

@@ -6,8 +6,11 @@
 // モジュールスコープのシングルトン（ページ単位で1つで十分）
 let audioCtx: AudioContext | null = null;
 
-/** AudioContext を遅延初期化して返す */
-function getAudioContext(): AudioContext {
+/**
+ * AudioContext を遅延初期化して返す
+ * bgm.ts と共有するためエクスポートする
+ */
+export function getAudioContext(): AudioContext {
   if (!audioCtx) {
     audioCtx = new AudioContext();
   }
