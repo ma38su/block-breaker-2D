@@ -1,73 +1,102 @@
-# React + TypeScript + Vite
+# 🕹 Block Breaker 2D
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+SF テーマの 5 ステージ制ブロック崩しゲーム。  
+スマホのタップ・スワイプだけで全操作が可能です。  
+PWA 対応のため、ホーム画面に追加してオフラインでも遊べます。
 
-Currently, two official plugins are available:
+## プレイ方法
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+| 操作 | 内容 |
+|------|------|
+| **スワイプ / マウス移動** | パドル操作 |
+| **タップ / クリック** | 開始・再開・ステージ選択 |
+| **♪ ON/OFF ボタン** | BGM のオン・オフ切り替え |
+| **❚❚ / ▶ ボタン** | ポーズ・再開 |
+| **キーボード ←→** | パドル移動（PC） |
+| **Space / Enter** | 開始・次へ（PC） |
+| **P / Escape** | ポーズ・再開 / 選択画面に戻る（PC） |
+| **M** | BGM ミュート切り替え（PC） |
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## スクリーンショット
 
-## Expanding the ESLint configuration
+### タイトル画面 / ステージ選択
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+<table>
+<tr>
+<td align="center"><b>タイトル画面</b></td>
+<td align="center"><b>ステージ選択画面</b></td>
+</tr>
+<tr>
+<td><img src="https://github.com/user-attachments/assets/81e2eadb-ae7f-4a21-a07a-86a2b51cec99" width="240" alt="タイトル画面"></td>
+<td><img src="https://github.com/user-attachments/assets/66add2a4-5181-4c83-916d-819896ee63c3" width="240" alt="ステージ選択"></td>
+</tr>
+</table>
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### 各ステージ
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+<table>
+<tr>
+<td align="center"><b>Stage 1 — 軌道衛星</b><br><sub>多層ブロック</sub></td>
+<td align="center"><b>Stage 2 — エネルギー炉</b><br><sub>爆弾・連鎖爆発</sub></td>
+<td align="center"><b>Stage 3 — 時空の歪み</b><br><sub>砂時計 ＋ 移動障害物</sub></td>
+</tr>
+<tr>
+<td><img src="https://github.com/user-attachments/assets/3345dd2b-6dab-4cf9-844a-9bdbc4d7ec3f" width="160" alt="Stage 1"></td>
+<td><img src="https://github.com/user-attachments/assets/823ef34b-a654-45ee-924e-f8dd155067b9" width="160" alt="Stage 2"></td>
+<td><img src="https://github.com/user-attachments/assets/054dba7f-c8f6-4257-80c7-7f5a7a0e0345" width="160" alt="Stage 3"></td>
+</tr>
+<tr>
+<td align="center"><b>Stage 4 — 暗号化エリア</b><br><sub>透明ブロック ＋ スキャン</sub></td>
+<td align="center"><b>Stage 5 — マザー・コア</b><br><sub>周回壁 ＋ 再生ブロック</sub></td>
+<td></td>
+</tr>
+<tr>
+<td><img src="https://github.com/user-attachments/assets/a021622f-9439-4d02-af2b-e316738722c4" width="160" alt="Stage 4"></td>
+<td><img src="https://github.com/user-attachments/assets/9634295a-8823-42ee-8542-92b48066838e" width="160" alt="Stage 5"></td>
+<td></td>
+</tr>
+</table>
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+---
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## ステージ一覧
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+| # | テーマ | 主要ギミック | 難易度 |
+|---|--------|-------------|--------|
+| 1 | 軌道衛星 | 多層ブロック（HP インジケーター付き）| ★☆☆☆☆ |
+| 2 | エネルギー炉 | 爆弾ブロック（BFS 連鎖爆発） | ★★☆☆☆ |
+| 3 | 時空の歪み | 砂時計レイアウト ＋ 横移動する壊せない障害物 | ★★★☆☆ |
+| 4 | 暗号化エリア | 透明ブロック ＋ スキャンアイテム | ★★★★☆ |
+| 5 | マザー・コア | 周回する壊せない壁 ＋ 再生ブロック | ★★★★★ |
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### ブロックの種類
+
+| 種類 | 説明 |
+|------|------|
+| **通常ブロック** | 1 回で破壊 |
+| **多層ブロック** | 複数回ヒットが必要。HP が減るにつれて色が変化 |
+| **爆弾ブロック** 💣 | 破壊すると周囲に連鎖爆発 |
+| **透明ブロック** | 通常は見えない。当たった瞬間だけ光る |
+| **壊せないブロック** | 破壊不可。反射だけ行う |
+| **再生ブロック** | 破壊後 15 秒で復活 |
+
+---
+
+## 技術スタック
+
+- **React 19** + **TypeScript**
+- **Vite** / **vite-plugin-pwa**（PWA・オフライン対応）
+- Canvas 2D API（描画・アニメーション）
+- Web Audio API（SE・BGM）
+
+## 開発
+
+```bash
+npm install
+npm run dev      # 開発サーバー起動
+npm run build    # 本番ビルド
+npm run lint     # ESLint
+npm run preview  # ビルド結果をプレビュー
 ```

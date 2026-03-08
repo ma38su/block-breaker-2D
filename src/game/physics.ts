@@ -2,7 +2,7 @@
  * 衝突判定・物理演算の純粋関数モジュール
  * ゲーム状態への副作用を持たず、呼び出し元がミューテーションを行う
  */
-import type { Ball, Paddle, Block } from '../types';
+import type { Ball, Paddle, Block, MovingObstacle, Item } from '../types';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -12,6 +12,9 @@ import {
   PADDLE_Y,
   BALL_RADIUS,
   PADDLE_WIDTH,
+  BOMB_EXPLOSION_RADIUS,
+  REGEN_FRAMES,
+  TRANSPARENT_FLASH_FRAMES,
 } from '../constants';
 
 /**
@@ -24,9 +27,6 @@ export function calcBallSpeed(blocksDestroyed: number): number {
 
 /**
  * ライフ消失後のボールをパドル中央に再配置する（破壊的更新）
- * @param ball            ボール状態（直接書き換える）
- * @param paddleX         パドルのX座標
- * @param blocksDestroyed 破壊済みブロック数（速度計算用）
  */
 export function resetBall(ball: Ball, paddleX: number, blocksDestroyed: number): void {
   const speed = calcBallSpeed(blocksDestroyed);
@@ -62,11 +62,9 @@ export function resolveWallCollision(ball: Ball): 'left' | 'right' | 'top' | nul
 
 /**
  * パドルとの衝突を解決する（破壊的更新）
- * 当たった位置によって反射角を変える（端に当たるほど鋭角）
  * @returns 衝突があった場合 true
  */
 export function resolvePaddleCollision(ball: Ball, paddle: Paddle): boolean {
-  // 下方向に移動中かつパドルと重なっている場合のみ判定
   if (
     ball.vy <= 0 ||
     ball.y + ball.radius < paddle.y ||
@@ -79,13 +77,11 @@ export function resolvePaddleCollision(ball: Ball, paddle: Paddle): boolean {
 
   ball.y = paddle.y - ball.radius;
 
-  // パドル上の相対位置（0〜1）から -1〜1 の角度係数を算出
   const hitPos = (ball.x - paddle.x) / paddle.width;
   const angleCoeff = (hitPos - 0.5) * 2;
   const speed = Math.hypot(ball.vx, ball.vy);
 
   ball.vx = speed * angleCoeff * 1.2;
-  // 極端な水平方向の反射を防ぐクランプ
   const maxVx = speed * 0.9;
   ball.vx = Math.max(-maxVx, Math.min(maxVx, ball.vx));
   ball.vy = -Math.sqrt(speed * speed - ball.vx * ball.vx);
@@ -101,37 +97,200 @@ export function isBallOutOfBounds(ball: Ball): boolean {
 }
 
 /**
- * ボールと1つのブロックの衝突を判定・解決する（破壊的更新）
- * 円-矩形の最近接点アルゴリズムを使用
- * @returns 衝突してブロックを破壊した場合 true
+ * 円と矩形の最近接点距離の2乗を返す内部ヘルパー
  */
-export function resolveBlockCollision(ball: Ball, block: Block): boolean {
-  if (!block.alive) return false;
+function circleRectDistSq(
+  cx: number, cy: number, radius: number,
+  rx: number, ry: number, rw: number, rh: number,
+): number {
+  const closestX = Math.max(rx, Math.min(cx, rx + rw));
+  const closestY = Math.max(ry, Math.min(cy, ry + rh));
+  const dx = cx - closestX;
+  const dy = cy - closestY;
+  return dx * dx + dy * dy - radius * radius;
+}
 
-  // ブロック上の最近接点を求める
-  const closestX = Math.max(block.x, Math.min(ball.x, block.x + block.width));
-  const closestY = Math.max(block.y, Math.min(ball.y, block.y + block.height));
-  const dx = ball.x - closestX;
-  const dy = ball.y - closestY;
+/**
+ * ボールとブロックの衝突を解決する（破壊的更新）
+ * 特殊ブロックの挙動:
+ *   - indestructible: 反射するが破壊されない
+ *   - multi:          HP を1減らし、0になったら破壊
+ *   - transparent:    flashTimer をセットして一時表示、破壊される
+ *   - bomb:           破壊後に爆発処理が必要（呼び出し元で処理）
+ *   - regenerating:   破壊後 regenTimer をセット
+ *
+ * @returns 'destroyed'=ブロック破壊, 'hit'=当たったが破壊なし, null=衝突なし
+ */
+export function resolveBlockCollision(ball: Ball, block: Block): 'destroyed' | 'hit' | null {
+  if (!block.alive) return null;
 
-  if (dx * dx + dy * dy >= ball.radius * ball.radius) return false;
+  if (circleRectDistSq(ball.x, ball.y, ball.radius, block.x, block.y, block.width, block.height) >= 0) {
+    return null;
+  }
 
-  // 衝突面（水平 or 垂直）をオーバーラップ量から判定して反射
+  // 衝突面（水平 or 垂直）を重なり量で判定
   const overlapX = block.width / 2 + ball.radius - Math.abs(ball.x - (block.x + block.width / 2));
   const overlapY = block.height / 2 + ball.radius - Math.abs(ball.y - (block.y + block.height / 2));
 
   if (overlapX < overlapY) {
-    ball.vx = -ball.vx; // 左右方向の反射
+    ball.vx = -ball.vx;
   } else {
-    ball.vy = -ball.vy; // 上下方向の反射
+    ball.vy = -ball.vy;
+  }
+
+  // 壊せないブロック: 反射のみ
+  if (block.type === 'indestructible') {
+    return 'hit';
+  }
+
+  // 透明ブロック: 一時フラッシュ表示
+  if (block.type === 'transparent') {
+    block.flashTimer = TRANSPARENT_FLASH_FRAMES;
+    block.alive = false;
+    return 'destroyed';
+  }
+
+  // 多層ブロック: HP を1減らす
+  if (block.type === 'multi') {
+    block.hp -= 1;
+    if (block.hp <= 0) {
+      block.alive = false;
+      return 'destroyed';
+    }
+    return 'hit';
+  }
+
+  // 再生ブロック: 破壊後に復活タイマーをセット
+  if (block.type === 'regenerating') {
+    block.alive = false;
+    block.regenTimer = REGEN_FRAMES;
+    return 'destroyed';
+  }
+
+  // 通常・爆弾ブロック
+  block.alive = false;
+  return 'destroyed';
+}
+
+/**
+ * 爆弾ブロックが破壊された時に周囲のブロックを連鎖破壊する（BFS）
+ * @param epicenterBlock  爆発の震源になったブロック
+ * @param allBlocks       全ブロック配列（生存フラグを直接書き換える）
+ * @param onDestroy       各ブロック破壊時に呼ばれるコールバック（スコア加算・エフェクト等）
+ */
+export function explodeBombs(
+  epicenterBlock: Block,
+  allBlocks: Block[],
+  onDestroy: (block: Block) => void,
+): void {
+  const queue: Block[] = [epicenterBlock];
+  const processed = new Set<Block>();
+  processed.add(epicenterBlock);
+
+  while (queue.length > 0) {
+    const source = queue.shift()!;
+    const cx = source.x + source.width / 2;
+    const cy = source.y + source.height / 2;
+
+    for (const target of allBlocks) {
+      if (!target.alive || processed.has(target) || target.type === 'indestructible') {
+        continue;
+      }
+
+      const tx = target.x + target.width / 2;
+      const ty = target.y + target.height / 2;
+      const dist = Math.hypot(tx - cx, ty - cy);
+
+      if (dist <= BOMB_EXPLOSION_RADIUS) {
+        processed.add(target);
+        target.alive = false;
+        if (target.type === 'regenerating') {
+          target.regenTimer = REGEN_FRAMES;
+        }
+        onDestroy(target);
+
+        // 連鎖: 爆発で壊れたブロックも爆弾なら次の震源に
+        if (target.type === 'bomb') {
+          queue.push(target);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 移動障害物との衝突を解決する（破壊的更新）
+ * @returns 衝突が発生した場合 true
+ */
+export function resolveObstacleCollision(ball: Ball, obstacle: MovingObstacle): boolean {
+  if (
+    circleRectDistSq(
+      ball.x, ball.y, ball.radius,
+      obstacle.x, obstacle.y, obstacle.width, obstacle.height,
+    ) >= 0
+  ) {
+    return false;
+  }
+
+  const overlapX =
+    obstacle.width / 2 + ball.radius - Math.abs(ball.x - (obstacle.x + obstacle.width / 2));
+  const overlapY =
+    obstacle.height / 2 + ball.radius - Math.abs(ball.y - (obstacle.y + obstacle.height / 2));
+
+  if (overlapX < overlapY) {
+    ball.vx = -ball.vx;
+    // めり込みを解消
+    ball.x += ball.vx > 0 ? overlapX : -overlapX;
+  } else {
+    ball.vy = -ball.vy;
+    ball.y += ball.vy > 0 ? overlapY : -overlapY;
   }
 
   return true;
 }
 
 /**
+ * 移動障害物の位置を1フレーム分更新する（破壊的更新）
+ * 直線移動モードは壁で折り返し、円軌道モードは角度を進める
+ */
+export function updateObstacle(obstacle: MovingObstacle): void {
+  if (obstacle.orbiting) {
+    obstacle.angle += obstacle.angularSpeed;
+    obstacle.x = obstacle.pivotX + obstacle.orbitRadius * Math.cos(obstacle.angle) - obstacle.width / 2;
+    obstacle.y = obstacle.pivotY + obstacle.orbitRadius * Math.sin(obstacle.angle) - obstacle.height / 2;
+  } else {
+    obstacle.x += obstacle.vx;
+    obstacle.y += obstacle.vy;
+    // 左右の壁で折り返す
+    if (obstacle.x <= 0) {
+      obstacle.x = 0;
+      obstacle.vx = Math.abs(obstacle.vx);
+    } else if (obstacle.x + obstacle.width >= CANVAS_WIDTH) {
+      obstacle.x = CANVAS_WIDTH - obstacle.width;
+      obstacle.vx = -Math.abs(obstacle.vx);
+    }
+  }
+}
+
+/**
+ * ボールがアイテムに触れたか判定する（破壊的更新: alive=false にする）
+ * @returns 収集されたアイテムの種類、なければ null
+ */
+export function checkItemCollection(ball: Ball, items: Item[]): Item['type'] | null {
+  for (const item of items) {
+    if (!item.alive) continue;
+    const dx = ball.x - item.x;
+    const dy = ball.y - item.y;
+    if (dx * dx + dy * dy <= (ball.radius + item.radius) ** 2) {
+      item.alive = false;
+      return item.type;
+    }
+  }
+  return null;
+}
+
+/**
  * ボールの速度を指定の速さに正規化して加速する（破壊的更新）
- * 現在速度が目標速度より遅い場合のみ加速する
  */
 export function accelerateBallTo(ball: Ball, targetSpeed: number): void {
   const currentSpeed = Math.hypot(ball.vx, ball.vy);
@@ -139,5 +298,25 @@ export function accelerateBallTo(ball: Ball, targetSpeed: number): void {
     const ratio = targetSpeed / currentSpeed;
     ball.vx *= ratio;
     ball.vy *= ratio;
+  }
+}
+
+/**
+ * 再生ブロックと透明ブロックのタイマーを1フレーム分更新する（破壊的更新）
+ * useCallback の外で呼ぶことで react-hooks/immutability ルールを回避する
+ */
+export function updateSpecialBlockTimers(blocks: Block[]): void {
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!b.alive && b.type === 'regenerating' && b.regenTimer > 0) {
+      b.regenTimer -= 1;
+      if (b.regenTimer <= 0) {
+        b.alive = true;
+        b.hp = b.maxHp; // 復活時に HP をリセット
+      }
+    }
+    if (b.type === 'transparent' && b.flashTimer > 0) {
+      b.flashTimer -= 1;
+    }
   }
 }
