@@ -25,7 +25,8 @@ export const MIN_RESET_ANGLE_DEG = 50;
 /** リセット時の打ち出し角度ランダム幅（度） */
 export const RESET_ANGLE_RANGE_DEG = 40;
 
-/** ボールのスピードレベル（1〜5）に対応する速度（px/フレーム） */
+/** ボールのスピードレベル（1〜5）に対応する速度（px/フレーム）
+ *  レベル2が初期値（5px/f = BALL_BASE_SPEED）で、2px/f 刻みで上昇 */
 export const BALL_SPEED_LEVELS = [3, 5, 7, 9, 11] as const;
 /** スピードレベルが上がる間隔（フレーム数、30秒 @ 60fps）。ゲーム開始時はレベル2から */
 export const BALL_SPEED_LEVEL_FRAMES = 1800;
@@ -247,4 +248,4 @@ export const STAGE_GIMMICK_LABELS = [
   'All Types: Final Boss',
 ] as const;
 
-export const STAGE_DIFFICULTIES = [1, 2, 3, 4, 5, 5, 6, 7, 8, 10] as const;
+export const STAGE_DIFFICULTIES = [1, 2, 3, 4, 5, 5, 5, 5, 5, 5] as const;

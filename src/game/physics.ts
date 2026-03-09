@@ -168,7 +168,7 @@ export function resolveBlockCollision(ball: Ball, block: Block, penetrate = fals
     return 'destroyed';
   }
 
-  // 多層ブロック: 貫通時は即破壊、通常時は HP を1減らす
+  // 多層ブロック: 貫通時は全HPを0にして即破壊、通常時はHP-1
   if (block.type === 'multi') {
     block.hp = penetrate ? 0 : block.hp - 1;
     if (block.hp <= 0) {

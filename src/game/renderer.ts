@@ -280,7 +280,20 @@ function drawLaserTrajectory(ctx: CanvasRenderingContext2D, state: GameState): v
   const speed = Math.hypot(ball.vx, ball.vy);
   if (speed === 0) return;
 
-  const fadeRatio = Math.min(1, state.laserTimer / 60);
+  /** フェードアウト開始フレーム数（最後の1秒） */
+  const LASER_FADE_FRAMES = 60;
+  /** シミュレーションのステップ幅（px） */
+  const LASER_SIM_STEP = 5;
+  /** 最大反射回数 */
+  const LASER_MAX_BOUNCES = 5;
+  /** 点線のダッシュ長と間隔（px） */
+  const LASER_DASH: [number, number] = [8, 5];
+  /** ダッシュアニメーション速度（ms/px） */
+  const LASER_ANIM_SPEED = 60;
+  /** ダッシュパターン全体の長さ（px） */
+  const LASER_DASH_CYCLE = LASER_DASH[0] + LASER_DASH[1]; // 13
+
+  const fadeRatio = Math.min(1, state.laserTimer / LASER_FADE_FRAMES);
   const r = ball.radius;
 
   // 正規化した方向ベクトルを使い、ステップ単位でシミュレート
@@ -288,15 +301,13 @@ function drawLaserTrajectory(ctx: CanvasRenderingContext2D, state: GameState): v
   let dy = ball.vy / speed;
   let x = ball.x;
   let y = ball.y;
-  const step = 5;
-  const maxBounces = 5;
   let bounces = 0;
 
   const points: Array<[number, number]> = [[x, y]];
 
-  for (let i = 0; i < 600 && bounces <= maxBounces; i++) {
-    x += dx * step;
-    y += dy * step;
+  for (let i = 0; i < 600 && bounces <= LASER_MAX_BOUNCES; i++) {
+    x += dx * LASER_SIM_STEP;
+    y += dy * LASER_SIM_STEP;
 
     if (x - r <= 0) { x = r; dx = Math.abs(dx); bounces++; }
     else if (x + r >= CANVAS_WIDTH) { x = CANVAS_WIDTH - r; dx = -Math.abs(dx); bounces++; }
@@ -314,8 +325,8 @@ function drawLaserTrajectory(ctx: CanvasRenderingContext2D, state: GameState): v
   ctx.shadowColor = '#cc44ff';
   ctx.shadowBlur = 12;
   ctx.lineWidth = 2;
-  ctx.setLineDash([8, 5]);
-  ctx.lineDashOffset = -(Date.now() / 60) % 13;
+  ctx.setLineDash(LASER_DASH);
+  ctx.lineDashOffset = -(Date.now() / LASER_ANIM_SPEED) % LASER_DASH_CYCLE;
   ctx.beginPath();
   ctx.moveTo(points[0][0], points[0][1]);
   for (let i = 1; i < points.length; i++) {
@@ -717,11 +728,10 @@ function drawStageSelectOverlay(ctx: CanvasRenderingContext2D, mousePos: MousePo
     ctx.font = '6px "Press Start 2P", monospace';
     ctx.fillText(STAGE_GIMMICK_LABELS[i], btnX + 34, btnY + 36);
 
-    const stars = Math.min(STAGE_DIFFICULTIES[i], 10);
+    const stars = STAGE_DIFFICULTIES[i];
     const starX = btnX + STAGE_BTN_W - 10;
-    const maxStars = 5;
-    for (let s = 0; s < maxStars; s++) {
-      ctx.fillStyle = s < Math.ceil(stars / 2) ? color : 'rgba(255,255,255,0.15)';
+    for (let s = 0; s < 5; s++) {
+      ctx.fillStyle = s < stars ? color : 'rgba(255,255,255,0.15)';
       ctx.fillRect(starX - s * 8, btnY + 10, 5, 5);
     }
   }
