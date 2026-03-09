@@ -30,6 +30,7 @@ import {
   BTN_SELECT_H,
   STAGE_BTN_X,
   STAGE_BTN_W,
+  STAGE_BTN_COL2_X,
   STAGE_BTN_H,
   STAGE_BTN_FIRST_Y,
   STAGE_BTN_GAP,
@@ -40,6 +41,7 @@ import {
   ITEM_COLORS,
   ITEM_ICONS,
   PADDLE_WIDTH,
+  BALL_SPEED_LEVEL_COLORS,
 } from '../constants';
 
 type MousePos = { x: number; y: number } | null;
@@ -267,6 +269,75 @@ function drawPaddle(ctx: CanvasRenderingContext2D, state: GameState): void {
   }
 }
 
+/**
+ * レーザーアイテム有効時にボールの予測軌道を描画する
+ * 壁・天井での反射をシミュレートして点線グローラインで可視化する
+ */
+function drawLaserTrajectory(ctx: CanvasRenderingContext2D, state: GameState): void {
+  if (state.laserTimer <= 0) return;
+
+  const { ball } = state;
+  const speed = Math.hypot(ball.vx, ball.vy);
+  if (speed === 0) return;
+
+  /** フェードアウト開始フレーム数（最後の1秒） */
+  const LASER_FADE_FRAMES = 60;
+  /** シミュレーションのステップ幅（px） */
+  const LASER_SIM_STEP = 5;
+  /** 最大反射回数 */
+  const LASER_MAX_BOUNCES = 5;
+  /** 点線のダッシュ長と間隔（px） */
+  const LASER_DASH: [number, number] = [8, 5];
+  /** ダッシュアニメーション速度（ms/px） */
+  const LASER_ANIM_SPEED = 60;
+  /** ダッシュパターン全体の長さ（px） */
+  const LASER_DASH_CYCLE = LASER_DASH[0] + LASER_DASH[1]; // 13
+
+  const fadeRatio = Math.min(1, state.laserTimer / LASER_FADE_FRAMES);
+  const r = ball.radius;
+
+  // 正規化した方向ベクトルを使い、ステップ単位でシミュレート
+  let dx = ball.vx / speed;
+  let dy = ball.vy / speed;
+  let x = ball.x;
+  let y = ball.y;
+  let bounces = 0;
+
+  const points: Array<[number, number]> = [[x, y]];
+
+  for (let i = 0; i < 600 && bounces <= LASER_MAX_BOUNCES; i++) {
+    x += dx * LASER_SIM_STEP;
+    y += dy * LASER_SIM_STEP;
+
+    if (x - r <= 0) { x = r; dx = Math.abs(dx); bounces++; }
+    else if (x + r >= CANVAS_WIDTH) { x = CANVAS_WIDTH - r; dx = -Math.abs(dx); bounces++; }
+    if (y - r <= 0) { y = r; dy = Math.abs(dy); bounces++; }
+    else if (y > CANVAS_HEIGHT + 20) break;
+
+    points.push([x, y]);
+  }
+
+  if (points.length < 2) return;
+
+  ctx.save();
+  ctx.globalAlpha = fadeRatio * 0.8;
+  ctx.strokeStyle = '#cc44ff';
+  ctx.shadowColor = '#cc44ff';
+  ctx.shadowBlur = 12;
+  ctx.lineWidth = 2;
+  ctx.setLineDash(LASER_DASH);
+  ctx.lineDashOffset = -(Date.now() / LASER_ANIM_SPEED) % LASER_DASH_CYCLE;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i][0], points[i][1]);
+  }
+  ctx.stroke();
+  ctx.restore();
+  ctx.setLineDash([]);
+  ctx.shadowBlur = 0;
+}
+
 /** ボールを描画する */
 function drawBall(ctx: CanvasRenderingContext2D, state: GameState): void {
   const { x, y, radius } = state.ball;
@@ -348,7 +419,21 @@ function drawHUD(
   // ステージ番号
   ctx.font = '7px "Press Start 2P", monospace';
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.textAlign = 'left';
   ctx.fillText(`ST${state.currentStage}/${TOTAL_STAGES}`, 8, 36);
+
+  // スピードレベル（ステージ番号の右側に表示）
+  const spdLevel = Math.max(1, Math.min(5, state.speedLevel));
+  const spdColor = BALL_SPEED_LEVEL_COLORS[spdLevel - 1];
+  ctx.font = '7px "Press Start 2P", monospace';
+  ctx.fillStyle = spdColor;
+  ctx.shadowColor = spdColor;
+  ctx.shadowBlur = 6;
+  ctx.textAlign = 'left';
+  let spdBar = '';
+  for (let i = 1; i <= 5; i++) spdBar += i <= spdLevel ? '■' : '□';
+  ctx.fillText(spdBar, 72, 36);
+  ctx.shadowBlur = 0;
 
   // ライフ（右寄せ）
   ctx.font = '11px "Press Start 2P", monospace';
@@ -514,7 +599,7 @@ function drawCollectEffect(ctx: CanvasRenderingContext2D, effect: CollectEffect)
 }
 
 /**
- * アイテム凡例（6種類 × アイコン + 名称）を描画する
+ * アイテム凡例（7種類 × アイコン + 名称）を描画する
  * スタート画面とポーズ画面の下部に表示する
  */
 function drawItemLegend(ctx: CanvasRenderingContext2D): void {
@@ -525,13 +610,14 @@ function drawItemLegend(ctx: CanvasRenderingContext2D): void {
     ['speedup',    'SPEED UP'],
     ['bigball',    'BIG BALL'],
     ['extralife',  'EXTRA LIFE'],
+    ['laser',      'LASER'],
     ['scan',       'SCAN (ST.4)'],
   ] as const;
 
-  const legendTop = 486;
-  const rowH = 21;
-  const col1X = 28;
-  const col2X = 252;
+  const legendTop = 470;
+  const rowH = 20;
+  const col1X = 18;
+  const col2X = 248;
 
   // 見出し
   ctx.font = '7px "Press Start 2P", monospace';
@@ -604,16 +690,19 @@ function drawStartOverlay(ctx: CanvasRenderingContext2D, mousePos: MousePos): vo
 }
 
 /**
- * ステージ選択画面オーバーレイを描画する
+ * ステージ選択画面オーバーレイを描画する（2列レイアウト：左1-5, 右6-10）
  */
 function drawStageSelectOverlay(ctx: CanvasRenderingContext2D, mousePos: MousePos): void {
   drawDimOverlay(ctx);
-  drawTitle(ctx, 'SELECT STAGE', '#cc66ff', 66);
+  drawTitle(ctx, 'SELECT STAGE', '#cc66ff', 54, 16);
 
   for (let i = 0; i < TOTAL_STAGES; i++) {
-    const btnY = STAGE_BTN_FIRST_Y + i * (STAGE_BTN_H + STAGE_BTN_GAP);
+    const col = Math.floor(i / 5);
+    const row = i % 5;
+    const btnX = col === 0 ? STAGE_BTN_X : STAGE_BTN_COL2_X;
+    const btnY = STAGE_BTN_FIRST_Y + row * (STAGE_BTN_H + STAGE_BTN_GAP);
     const color = STAGE_THEME_COLORS[i];
-    const hovered = isHovered(mousePos, STAGE_BTN_X, btnY, STAGE_BTN_W, STAGE_BTN_H);
+    const hovered = isHovered(mousePos, btnX, btnY, STAGE_BTN_W, STAGE_BTN_H);
 
     ctx.shadowColor = color;
     ctx.shadowBlur = hovered ? 16 : 8;
@@ -621,29 +710,29 @@ function drawStageSelectOverlay(ctx: CanvasRenderingContext2D, mousePos: MousePo
     ctx.strokeStyle = color;
     ctx.lineWidth = hovered ? 2 : 1.5;
     ctx.beginPath();
-    ctx.roundRect(STAGE_BTN_X, btnY, STAGE_BTN_W, STAGE_BTN_H, 10);
+    ctx.roundRect(btnX, btnY, STAGE_BTN_W, STAGE_BTN_H, 8);
     ctx.fill();
     ctx.stroke();
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = color;
-    ctx.font = 'bold 14px "Press Start 2P", monospace';
+    ctx.font = 'bold 12px "Press Start 2P", monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`${i + 1}`, STAGE_BTN_X + 16, btnY + 28);
+    ctx.fillText(`${i + 1}`, btnX + 10, btnY + 22);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '11px "Press Start 2P", monospace';
-    ctx.fillText(STAGE_NAMES[i], STAGE_BTN_X + 48, btnY + 25);
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillText(STAGE_NAMES[i], btnX + 34, btnY + 20);
 
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '7px "Press Start 2P", monospace';
-    ctx.fillText(STAGE_GIMMICK_LABELS[i], STAGE_BTN_X + 48, btnY + 46);
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillText(STAGE_GIMMICK_LABELS[i], btnX + 34, btnY + 36);
 
     const stars = STAGE_DIFFICULTIES[i];
-    const starX = STAGE_BTN_X + STAGE_BTN_W - 16;
+    const starX = btnX + STAGE_BTN_W - 10;
     for (let s = 0; s < 5; s++) {
       ctx.fillStyle = s < stars ? color : 'rgba(255,255,255,0.15)';
-      ctx.fillRect(starX - s * 10, btnY + 14, 7, 7);
+      ctx.fillRect(starX - s * 8, btnY + 10, 5, 5);
     }
   }
 
@@ -713,6 +802,7 @@ export function drawFrame(
   drawParticles(ctx, particles);
   drawScorePopups(ctx, popups);
   drawPaddle(ctx, state);
+  drawLaserTrajectory(ctx, state);
   drawBall(ctx, state);
   drawHUD(ctx, state, bgmEnabled, mousePos);
 

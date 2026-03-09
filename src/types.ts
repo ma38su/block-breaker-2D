@@ -102,8 +102,9 @@ export interface MovingObstacle {
  * - extralife  : ライフ+1（即時効果）
  * - speedup    : ボールを一定時間加速
  * - bigball    : ボールを一定時間拡大
+ * - laser      : ボールの軌道を一定時間表示（レーザーのような予測線）
  */
-export type ItemType = 'scan' | 'widepaddle' | 'speeddown' | 'extralife' | 'speedup' | 'bigball';
+export type ItemType = 'scan' | 'widepaddle' | 'speeddown' | 'extralife' | 'speedup' | 'bigball' | 'laser';
 
 /** フィールド上のアイテム */
 export interface Item {
@@ -160,6 +161,10 @@ export interface GameState {
   speedUpTimer: number;
   /** ボール拡大の残りフレーム数（0 = 無効） */
   bigBallTimer: number;
+  /** レーザー（軌道表示）の残りフレーム数（0 = 無効） */
+  laserTimer: number;
+  /** 現在のボールスピードレベル（1〜5、ゲーム開始はレベル2） */
+  speedLevel: number;
   /** アイテム取得時の全画面エフェクト（null = 非表示） */
   collectEffect: CollectEffect | null;
 }

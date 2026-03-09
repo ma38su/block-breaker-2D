@@ -6,7 +6,8 @@ import type { Ball, Paddle, Block, MovingObstacle, Item } from '../types';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
-  BALL_BASE_SPEED,
+  BALL_SPEED_LEVELS,
+  BALL_SPEED_LEVEL_FRAMES,
   MIN_RESET_ANGLE_DEG,
   RESET_ANGLE_RANGE_DEG,
   PADDLE_Y,
@@ -18,18 +19,26 @@ import {
 } from '../constants';
 
 /**
- * 現在の破壊ブロック数から計算したボール速度を返す
- * 5ブロック破壊ごとに +0.3 加速する
+ * 経過フレーム数からボールのスピードレベル（2〜5）を計算する
+ * ゲーム開始時はレベル2から始まり、BALL_SPEED_LEVEL_FRAMES ごとにレベルアップ
  */
-export function calcBallSpeed(blocksDestroyed: number): number {
-  return BALL_BASE_SPEED + Math.floor(blocksDestroyed / 5) * 0.3;
+export function calcSpeedLevel(playFrames: number): number {
+  return Math.min(5, 2 + Math.floor(playFrames / BALL_SPEED_LEVEL_FRAMES));
+}
+
+/**
+ * スピードレベルに対応するボール速度（px/フレーム）を返す
+ */
+export function calcBallSpeed(speedLevel: number): number {
+  const idx = Math.max(0, Math.min(speedLevel - 1, BALL_SPEED_LEVELS.length - 1));
+  return BALL_SPEED_LEVELS[idx];
 }
 
 /**
  * ライフ消失後のボールをパドル中央に再配置する（破壊的更新）
  */
-export function resetBall(ball: Ball, paddleX: number, blocksDestroyed: number): void {
-  const speed = calcBallSpeed(blocksDestroyed);
+export function resetBall(ball: Ball, paddleX: number, speedLevel: number): void {
+  const speed = calcBallSpeed(speedLevel);
   const angle = (-(MIN_RESET_ANGLE_DEG + Math.random() * RESET_ANGLE_RANGE_DEG)) * (Math.PI / 180);
   ball.x = paddleX + PADDLE_WIDTH / 2;
   ball.y = PADDLE_Y - BALL_RADIUS - 2;
@@ -114,34 +123,42 @@ function circleRectDistSq(
 /**
  * ボールとブロックの衝突を解決する（破壊的更新）
  * 特殊ブロックの挙動:
- *   - indestructible: 反射するが破壊されない
- *   - multi:          HP を1減らし、0になったら破壊
+ *   - indestructible: 反射するが破壊されない（貫通時も反射）
+ *   - multi:          HP を1減らし、0になったら破壊（貫通時は即破壊）
  *   - transparent:    flashTimer をセットして一時表示、破壊される
  *   - bomb:           破壊後に爆発処理が必要（呼び出し元で処理）
  *   - regenerating:   破壊後 regenTimer をセット
  *
+ * @param penetrate  true のとき壊せるブロックを貫通（速度反転をスキップ）
  * @returns 'destroyed'=ブロック破壊, 'hit'=当たったが破壊なし, null=衝突なし
  */
-export function resolveBlockCollision(ball: Ball, block: Block): 'destroyed' | 'hit' | null {
+export function resolveBlockCollision(ball: Ball, block: Block, penetrate = false): 'destroyed' | 'hit' | null {
   if (!block.alive) return null;
 
   if (circleRectDistSq(ball.x, ball.y, ball.radius, block.x, block.y, block.width, block.height) >= 0) {
     return null;
   }
 
-  // 衝突面（水平 or 垂直）を重なり量で判定
   const overlapX = block.width / 2 + ball.radius - Math.abs(ball.x - (block.x + block.width / 2));
   const overlapY = block.height / 2 + ball.radius - Math.abs(ball.y - (block.y + block.height / 2));
 
-  if (overlapX < overlapY) {
-    ball.vx = -ball.vx;
-  } else {
-    ball.vy = -ball.vy;
+  // 壊せないブロック: 貫通フラグに関わらず常に反射
+  if (block.type === 'indestructible') {
+    if (overlapX < overlapY) {
+      ball.vx = -ball.vx;
+    } else {
+      ball.vy = -ball.vy;
+    }
+    return 'hit';
   }
 
-  // 壊せないブロック: 反射のみ
-  if (block.type === 'indestructible') {
-    return 'hit';
+  // 壊せるブロック: 貫通時は速度反転をスキップ
+  if (!penetrate) {
+    if (overlapX < overlapY) {
+      ball.vx = -ball.vx;
+    } else {
+      ball.vy = -ball.vy;
+    }
   }
 
   // 透明ブロック: 一時フラッシュ表示
@@ -151,9 +168,9 @@ export function resolveBlockCollision(ball: Ball, block: Block): 'destroyed' | '
     return 'destroyed';
   }
 
-  // 多層ブロック: HP を1減らす
+  // 多層ブロック: 貫通時は全HPを0にして即破壊、通常時はHP-1
   if (block.type === 'multi') {
-    block.hp -= 1;
+    block.hp = penetrate ? 0 : block.hp - 1;
     if (block.hp <= 0) {
       block.alive = false;
       return 'destroyed';
