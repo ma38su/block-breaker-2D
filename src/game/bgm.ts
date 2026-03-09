@@ -362,6 +362,14 @@ function runScheduler(): void {
 }
 
 /**
+ * BGM のテンポ倍率を設定する（1.0 = 通常, 0.5 = 半速, 3.0 = 3倍速）
+ * ボール速度に連動して呼び出す。0.5〜3.0 の範囲にクランプする。
+ */
+export function setBGMTempo(multiplier: number): void {
+  tempoMultiplier = Math.max(0.5, Math.min(3.0, multiplier));
+}
+
+/**
  * 指定ステージの BGM を最初から開始する
  * すでに再生中の場合は何もしない
  * @param stage ステージ番号（1〜5）
@@ -371,6 +379,7 @@ export function startBGM(stage = 1): void {
 
   const stageIndex = Math.max(0, Math.min(stage - 1, STAGE_BGMS.length - 1));
   currentConfig = STAGE_BGMS[stageIndex];
+  tempoMultiplier = 1.0;
 
   const ctx = getAudioContext();
 

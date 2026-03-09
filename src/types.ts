@@ -96,13 +96,14 @@ export interface MovingObstacle {
 
 /**
  * アイテムの種類
+ * - scan       : 透明ブロックを一定時間可視化（ステージ4専用配置）
  * - widepaddle : パドルを一定時間拡幅
  * - speeddown  : ボールを一定時間減速
  * - extralife  : ライフ+1（即時効果）
  * - speedup    : ボールを一定時間加速
  * - bigball    : ボールを一定時間拡大
  */
-export type ItemType = 'widepaddle' | 'speeddown' | 'extralife' | 'speedup' | 'bigball';
+export type ItemType = 'scan' | 'widepaddle' | 'speeddown' | 'extralife' | 'speedup' | 'bigball';
 
 /** フィールド上のアイテム */
 export interface Item {
@@ -149,6 +150,8 @@ export interface GameState {
   obstacles: MovingObstacle[];
   /** フィールド上のアイテム */
   items: Item[];
+  /** スキャンエフェクトの残りフレーム数（0以下で無効） */
+  scanTimer: number;
   /** ワイドパドルの残りフレーム数（0 = 無効） */
   widePaddleTimer: number;
   /** ボール減速の残りフレーム数（0 = 無効） */

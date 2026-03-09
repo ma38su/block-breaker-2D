@@ -271,11 +271,20 @@ function drawPaddle(ctx: CanvasRenderingContext2D, state: GameState): void {
 function drawBall(ctx: CanvasRenderingContext2D, state: GameState): void {
   const { x, y, radius } = state.ball;
   const isSlowed = state.slowBallTimer > 0;
-  ctx.shadowColor = isSlowed ? '#00ff88' : '#ffffff';
-  ctx.shadowBlur = 15;
+  const isFast   = state.speedUpTimer > 0;
+  const isBig    = state.bigBallTimer > 0;
+
+  let glowColor = '#ffffff';
+  let outerColor = '#aaccff';
+  if (isSlowed)    { glowColor = '#00ff88'; outerColor = '#88ffcc'; }
+  else if (isFast) { glowColor = '#ffaa00'; outerColor = '#ffcc66'; }
+  else if (isBig)  { glowColor = '#ff6600'; outerColor = '#ff9944'; }
+
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = isBig ? 22 : 15;
   const gradient = ctx.createRadialGradient(x - 2, y - 2, 1, x, y, radius);
   gradient.addColorStop(0, '#ffffff');
-  gradient.addColorStop(1, isSlowed ? '#88ffcc' : '#aaccff');
+  gradient.addColorStop(1, outerColor);
   ctx.fillStyle = gradient;
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -361,6 +370,18 @@ function drawHUD(
     ctx.fillStyle = '#00ff88';
     ctx.textAlign = 'right';
     ctx.fillText(`S:${Math.ceil(state.slowBallTimer / 60)}s`, effectX, effectY);
+    effectX -= 44;
+  }
+  if (state.speedUpTimer > 0) {
+    ctx.fillStyle = '#ffaa00';
+    ctx.textAlign = 'right';
+    ctx.fillText(`F:${Math.ceil(state.speedUpTimer / 60)}s`, effectX, effectY);
+    effectX -= 44;
+  }
+  if (state.bigBallTimer > 0) {
+    ctx.fillStyle = '#ff6600';
+    ctx.textAlign = 'right';
+    ctx.fillText(`B:${Math.ceil(state.bigBallTimer / 60)}s`, effectX, effectY);
   }
 
   const btnY = 7;
@@ -493,6 +514,76 @@ function drawCollectEffect(ctx: CanvasRenderingContext2D, effect: CollectEffect)
 }
 
 /**
+ * アイテム凡例（6種類 × アイコン + 名称）を描画する
+ * スタート画面とポーズ画面の下部に表示する
+ */
+function drawItemLegend(ctx: CanvasRenderingContext2D): void {
+  // 順番: scan は Stage4 専用なので末尾に
+  const entries: ReadonlyArray<readonly [string, string]> = [
+    ['widepaddle', 'WIDE PADDLE'],
+    ['speeddown',  'SLOW BALL'],
+    ['speedup',    'SPEED UP'],
+    ['bigball',    'BIG BALL'],
+    ['extralife',  'EXTRA LIFE'],
+    ['scan',       'SCAN (ST.4)'],
+  ] as const;
+
+  const legendTop = 486;
+  const rowH = 21;
+  const col1X = 28;
+  const col2X = 252;
+
+  // 見出し
+  ctx.font = '7px "Press Start 2P", monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.textAlign = 'center';
+  ctx.fillText('─ ITEMS ─', CANVAS_WIDTH / 2, legendTop);
+
+  entries.forEach(([type, label], i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = col === 0 ? col1X : col2X;
+    const y = legendTop + 16 + row * rowH;
+    const color = ITEM_COLORS[type] ?? '#ffffff';
+    const icon  = ITEM_ICONS[type]  ?? '?';
+
+    // グロー付き円
+    ctx.globalAlpha = 0.9;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x + 8, y - 5, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // 内側を暗く
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.arc(x + 8, y - 5, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // アイコン
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, x + 8, y - 5);
+    ctx.textBaseline = 'alphabetic';
+
+    // ラベル
+    ctx.fillStyle = color;
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, x + 22, y);
+  });
+
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+}
+
+/**
  * スタート画面オーバーレイを描画する
  */
 function drawStartOverlay(ctx: CanvasRenderingContext2D, mousePos: MousePos): void {
@@ -507,7 +598,9 @@ function drawStartOverlay(ctx: CanvasRenderingContext2D, mousePos: MousePos): vo
   ctx.fillStyle = 'rgba(255,255,255,0.35)';
   ctx.font = '8px "Press Start 2P", monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('SWIPE / MOUSE: PADDLE', CANVAS_WIDTH / 2, 472);
+  ctx.fillText('SWIPE / MOUSE: PADDLE', CANVAS_WIDTH / 2, 466);
+
+  drawItemLegend(ctx);
 }
 
 /**
@@ -641,6 +734,7 @@ export function drawFrame(
       drawLines(ctx, [`SCORE: ${state.score}`], 272);
       drawButton(ctx, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H, '▶  RESUME', '#ffcc00', false, 10, playHovered);
       drawButton(ctx, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H, 'SELECT STAGE', '#cc66ff', false, 10, selectHovered);
+      drawItemLegend(ctx);
       break;
     case 'gameover':
       drawEndOverlay(

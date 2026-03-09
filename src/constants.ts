@@ -65,6 +65,8 @@ export const BOMB_EXPLOSION_RADIUS = 90;
 export const TRANSPARENT_FLASH_FRAMES = 25;
 /** 再生ブロックが復活するまでの時間（フレーム数 = 15秒 @ 60fps） */
 export const REGEN_FRAMES = 900;
+/** スキャンアイテム取得時の透明ブロック可視化時間（フレーム数 = 5秒） */
+export const SCAN_DURATION_FRAMES = 300;
 // ── アイテム ──────────────────────────────────────────────────
 /** ブロック破壊時のアイテムドロップ確率（0〜1） */
 export const ITEM_DROP_RATE = 0.07;
@@ -95,6 +97,7 @@ export const COLLECT_EFFECT_FRAMES = 70;
 
 /** アイテム種別ごとの色 */
 export const ITEM_COLORS: Readonly<Record<string, string>> = {
+  scan:       '#00ffff',
   widepaddle: '#0099ff',
   speeddown:  '#00ff88',
   extralife:  '#ff66aa',
@@ -104,6 +107,7 @@ export const ITEM_COLORS: Readonly<Record<string, string>> = {
 
 /** アイテム種別ごとの表示ラベル */
 export const ITEM_LABELS: Readonly<Record<string, string>> = {
+  scan:       'SCAN!',
   widepaddle: 'WIDE PADDLE!',
   speeddown:  'SLOW BALL!',
   extralife:  'EXTRA LIFE!',
@@ -113,6 +117,7 @@ export const ITEM_LABELS: Readonly<Record<string, string>> = {
 
 /** アイテム種別ごとのアイコン（canvas fillText 用） */
 export const ITEM_ICONS: Readonly<Record<string, string>> = {
+  scan:       '👁',
   widepaddle: '⬛',
   speeddown:  '🐢',
   extralife:  '❤',
@@ -201,7 +206,7 @@ export const STAGE_GIMMICK_LABELS = [
   'Multi-Layer Blocks',
   'Bomb Chain Reaction',
   'Hourglass + Moving Wall',
-  'Transparent Blocks',
+  'Transparent + Scan Item',
   'Orbiting Wall + Regen',
 ] as const;
 

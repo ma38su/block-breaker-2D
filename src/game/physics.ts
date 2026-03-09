@@ -291,6 +291,27 @@ export function checkItemCollection(ball: Ball, items: Item[]): Item | null {
 }
 
 /**
+ * パドルがアイテムに触れたか判定する（破壊的更新: alive=false にする）
+ * 落下中のアイテム（vy > 0）のみ対象とする（静止配置アイテムはボールで取得）
+ * @returns 収集されたアイテムオブジェクト、なければ null
+ */
+export function checkPaddleItemCollection(paddle: Paddle, items: Item[]): Item | null {
+  for (const item of items) {
+    if (!item.alive || item.vy <= 0) continue;
+    // 円（アイテム）と矩形（パドル）の最近接点を求めて距離判定
+    const closestX = Math.max(paddle.x, Math.min(item.x, paddle.x + paddle.width));
+    const closestY = Math.max(paddle.y, Math.min(item.y, paddle.y + paddle.height));
+    const dx = item.x - closestX;
+    const dy = item.y - closestY;
+    if (dx * dx + dy * dy <= item.radius * item.radius) {
+      item.alive = false;
+      return item;
+    }
+  }
+  return null;
+}
+
+/**
  * 落下アイテムの位置を1フレーム分更新し、画面外に出たものを除去する（破壊的更新）
  */
 export function updateFallingItems(items: Item[], canvasHeight: number): void {

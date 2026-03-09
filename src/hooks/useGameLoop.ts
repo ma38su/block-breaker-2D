@@ -22,6 +22,12 @@ import {
   WIDE_PADDLE_FRAMES,
   SLOW_BALL_FRAMES,
   SLOW_BALL_FACTOR,
+  SPEED_UP_FRAMES,
+  SPEED_UP_FACTOR,
+  BIG_BALL_RADIUS,
+  BIG_BALL_FRAMES,
+  BALL_RADIUS,
+  BALL_BASE_SPEED,
   ITEM_DROP_RATE,
   ITEM_FALL_SPEED,
   MAX_ACTIVE_ITEMS,
@@ -63,13 +69,14 @@ import {
   updateObstacle,
   resolveObstacleCollision,
   checkItemCollection,
+  checkPaddleItemCollection,
   updateFallingItems,
   updateSpecialBlockTimers,
 } from '../game/physics';
 import { spawnParticles, spawnScorePopup, updateParticles, updateScorePopups } from '../game/particles';
 import { drawFrame } from '../game/renderer';
 import { createInitialState } from '../game/state';
-import { startBGM, stopBGM, pauseBGM, resumeBGM } from '../game/bgm';
+import { startBGM, stopBGM, pauseBGM, resumeBGM, setBGMTempo } from '../game/bgm';
 
 /** パドルを1ステップ左右に動かす（キーボード操作用の共通処理） */
 function movePaddleByKey(paddle: { x: number; width: number }, key: string, canvasWidth: number): void {
@@ -90,8 +97,8 @@ function canMovePaddle(status: string): boolean {
   return status === 'playing' || status === 'stopped';
 }
 
-/** ランダムにアイテム種別を選ぶ（scan は透明ブロックが多いステージで有効） */
-const DROPPABLE_ITEM_TYPES: readonly ItemType[] = ['scan', 'widepaddle', 'speeddown', 'extralife'];
+/** ランダムドロップするアイテム種別（scan はステージ4専用配置のため除外） */
+const DROPPABLE_ITEM_TYPES: readonly ItemType[] = ['widepaddle', 'speeddown', 'extralife', 'speedup', 'bigball'];
 function pickRandomItemType(): ItemType {
   return DROPPABLE_ITEM_TYPES[Math.floor(Math.random() * DROPPABLE_ITEM_TYPES.length)];
 }
@@ -183,6 +190,25 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       state.slowBallTimer--;
     }
 
+    // ── ボール加速効果タイマー ────────────────────────────
+    const ballSpeed = Math.hypot(ball.vx, ball.vy);
+    if (state.speedUpTimer > 0) {
+      state.speedUpTimer--;
+      const targetSpeed = calcBallSpeed(blocksDestroyedRef.current) * SPEED_UP_FACTOR;
+      if (ballSpeed > 0 && ballSpeed < targetSpeed) {
+        ball.vx *= targetSpeed / ballSpeed;
+        ball.vy *= targetSpeed / ballSpeed;
+      }
+    }
+
+    // ── ボール拡大効果タイマー ────────────────────────────
+    if (state.bigBallTimer > 0) {
+      state.bigBallTimer--;
+      if (state.bigBallTimer === 0) {
+        ball.radius = BALL_RADIUS;
+      }
+    }
+
     // ── アイテム取得エフェクトタイマー ─────────────────────
     if (state.collectEffect && state.collectEffect.timer > 0) {
       state.collectEffect.timer--;
@@ -224,8 +250,8 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     // ── 落下アイテムの移動 ──────────────────────────────────
     updateFallingItems(state.items, CANVAS_HEIGHT);
 
-    // ── アイテム収集 ────────────────────────────────────────
-    const collectedItem = checkItemCollection(ball, state.items);
+    // ── アイテム収集（ボールまたはパドル） ──────────────────
+    const collectedItem = checkItemCollection(ball, state.items) ?? checkPaddleItemCollection(state.paddle, state.items);
     if (collectedItem) {
       const effectColor = ITEM_COLORS[collectedItem.type] ?? '#ffffff';
       const effectLabel = ITEM_LABELS[collectedItem.type] ?? 'ITEM!';
@@ -255,8 +281,34 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
         case 'widepaddle':
           state.widePaddleTimer = WIDE_PADDLE_FRAMES;
           break;
-        case 'speeddown':
+        case 'speeddown': {
           state.slowBallTimer = SLOW_BALL_FRAMES;
+          state.speedUpTimer = 0;
+          // 即時減速
+          const slowCap = calcBallSpeed(blocksDestroyedRef.current) * SLOW_BALL_FACTOR;
+          const spd = Math.hypot(ball.vx, ball.vy);
+          if (spd > slowCap) {
+            ball.vx *= slowCap / spd;
+            ball.vy *= slowCap / spd;
+          }
+          break;
+        }
+        case 'speedup': {
+          state.speedUpTimer = SPEED_UP_FRAMES;
+          state.slowBallTimer = 0;
+          // 即時加速
+          const baseSpeed = calcBallSpeed(blocksDestroyedRef.current);
+          const targetSpeed = baseSpeed * SPEED_UP_FACTOR;
+          const spd = Math.hypot(ball.vx, ball.vy);
+          if (spd > 0 && spd < targetSpeed) {
+            ball.vx *= targetSpeed / spd;
+            ball.vy *= targetSpeed / spd;
+          }
+          break;
+        }
+        case 'bigball':
+          state.bigBallTimer = BIG_BALL_FRAMES;
+          ball.radius = BIG_BALL_RADIUS;
           break;
         case 'extralife':
           state.lives = Math.min(state.lives + 1, 5);
@@ -341,6 +393,11 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
     updateParticles(particlesRef.current);
     updateScorePopups(scorePopupsRef.current);
+
+    // ── BGM テンポをボール速度に同期 ─────────────────────
+    if (bgmEnabledRef.current) {
+      setBGMTempo(Math.hypot(ball.vx, ball.vy) / BALL_BASE_SPEED);
+    }
 
     if (clearableAlive === 0) {
       const nextStage = state.currentStage + 1;
