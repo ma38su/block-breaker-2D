@@ -274,19 +274,32 @@ export function updateObstacle(obstacle: MovingObstacle): void {
 
 /**
  * ボールがアイテムに触れたか判定する（破壊的更新: alive=false にする）
- * @returns 収集されたアイテムの種類、なければ null
+ * @returns 収集されたアイテムオブジェクト、なければ null
  */
-export function checkItemCollection(ball: Ball, items: Item[]): Item['type'] | null {
+export function checkItemCollection(ball: Ball, items: Item[]): Item | null {
   for (const item of items) {
     if (!item.alive) continue;
     const dx = ball.x - item.x;
     const dy = ball.y - item.y;
     if (dx * dx + dy * dy <= (ball.radius + item.radius) ** 2) {
       item.alive = false;
-      return item.type;
+      return item;
     }
   }
   return null;
+}
+
+/**
+ * 落下アイテムの位置を1フレーム分更新し、画面外に出たものを除去する（破壊的更新）
+ */
+export function updateFallingItems(items: Item[], canvasHeight: number): void {
+  for (const item of items) {
+    if (!item.alive || item.vy <= 0) continue;
+    item.y += item.vy;
+    if (item.y - item.radius > canvasHeight) {
+      item.alive = false;
+    }
+  }
 }
 
 /**

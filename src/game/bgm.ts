@@ -17,20 +17,14 @@ const A2   = 110.00;
 const Bb2  = 116.54;
 const B2   = 123.47;
 const C3   = 130.81;
-const Cs3  = 138.59;
 const D3   = 146.83;
-const Ds3  = 155.56;
 const E3   = 164.81;
 const F3   = 174.61;
 const Fs3  = 185.00;
 const G3   = 196.00;
 const Gs3  = 207.65;
 const A3   = 220.00;
-const Bb3  = 233.08;
 const B3   = 246.94;
-const C4   = 261.63;
-const Cs4  = 277.18;
-const D4   = 293.66;
 const E4   = 329.63;
 const F4   = 349.23;
 const Fs4  = 369.99;
@@ -221,12 +215,12 @@ const STAGE5: BGMConfig = {
   // 8小節ループ (64 × 8分音符)
   melody: [
     [C5, Q5*2], [Ds5, Q5*2], [G5,  Q5*2], [Bb5, Q5*2],
-    [Ab5 ?? Gs5, Q5*2], [G5,  Q5*2], [F5,  Q5*4],
-    [G5, Q5],   [Ab5 ?? Gs5, Q5],   [G5,  Q5],   [F5,  Q5],   [Ds5, Q5],   [F5,  Q5],   [G5, Q5*2],
+    [Gs5, Q5*2], [G5,  Q5*2], [F5,  Q5*4],
+    [G5, Q5],   [Gs5, Q5],   [G5,  Q5],   [F5,  Q5],   [Ds5, Q5],   [F5,  Q5],   [G5, Q5*2],
     [Ds5, Q5*2], [D5,  Q5],   [C5,  Q5],   [Bb4, Q5*4],
-    [G5,  Q5],   [Bb5, Q5],   [C6,  Q5*2], [Bb5, Q5*2], [Ab5 ?? Gs5, Q5*2],
+    [G5,  Q5],   [Bb5, Q5],   [C6,  Q5*2], [Bb5, Q5*2], [Gs5, Q5*2],
     [G5,  Q5*2], [F5,  Q5*2], [Ds5, Q5*2], [D5,  Q5*2],
-    [C5,  Q5],   [Ds5, Q5],   [F5,  Q5],   [G5,  Q5],   [Ab5 ?? Gs5, Q5],   [G5,  Q5],   [F5,  Q5],   [Ds5, Q5],
+    [C5,  Q5],   [Ds5, Q5],   [F5,  Q5],   [G5,  Q5],   [Gs5, Q5],   [G5,  Q5],   [F5,  Q5],   [Ds5, Q5],
     [G5,  Q5*4], [R,   Q5*4],
   ],
   // 4小節ループ (32 × 8分音符)

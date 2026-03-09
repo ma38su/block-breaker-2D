@@ -60,3 +60,25 @@ export const playBlockBreak = (row: number): void => playBeep(660 - row * 60, 0.
 
 /** ライフ消失音 */
 export const playLifeLost = (): void => playBeep(110, 0.3, 0.5);
+
+/** アイテム取得音（明るい上昇アルペジオ） */
+export function playItemCollect(): void {
+  try {
+    const ctx = getAudioContext();
+    const notes = [523.25, 659.25, 783.99, 1046.50]; // C5 E5 G5 C6
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.07);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime + i * 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.07 + 0.12);
+      osc.start(ctx.currentTime + i * 0.07);
+      osc.stop(ctx.currentTime + i * 0.07 + 0.15);
+    });
+  } catch {
+    // ignore
+  }
+}

@@ -10,13 +10,24 @@
  *   - ステージ進行管理・ステージ選択
  */
 import { useEffect, useRef, useCallback } from 'react';
-import type { GameState, KeyState, Particle, ScorePopup } from '../types';
+import type { GameState, KeyState, Particle, ScorePopup, Item, ItemType } from '../types';
 import {
   CANVAS_WIDTH,
+  CANVAS_HEIGHT,
   PADDLE_WIDTH,
+  PADDLE_WIDTH_WIDE,
   PADDLE_SPEED,
   TOTAL_STAGES,
   SCAN_DURATION_FRAMES,
+  WIDE_PADDLE_FRAMES,
+  SLOW_BALL_FRAMES,
+  SLOW_BALL_FACTOR,
+  ITEM_DROP_RATE,
+  ITEM_FALL_SPEED,
+  MAX_ACTIVE_ITEMS,
+  COLLECT_EFFECT_FRAMES,
+  ITEM_COLORS,
+  ITEM_LABELS,
   HUD_BGM_BUTTON_X,
   HUD_PAUSE_BUTTON_X,
   HUD_BTN_HALF_W,
@@ -39,7 +50,7 @@ import {
   STAGE_BACK_BTN_Y,
   STAGE_BACK_BTN_H,
 } from '../constants';
-import { playWallHit, playPaddleHit, playBlockBreak, playLifeLost } from '../game/audio';
+import { playWallHit, playPaddleHit, playBlockBreak, playLifeLost, playItemCollect } from '../game/audio';
 import {
   resetBall,
   resolveWallCollision,
@@ -52,6 +63,7 @@ import {
   updateObstacle,
   resolveObstacleCollision,
   checkItemCollection,
+  updateFallingItems,
   updateSpecialBlockTimers,
 } from '../game/physics';
 import { spawnParticles, spawnScorePopup, updateParticles, updateScorePopups } from '../game/particles';
@@ -69,6 +81,34 @@ function canMovePaddle(status: string): boolean {
   return status === 'playing' || status === 'stopped';
 }
 
+/** ランダムにアイテム種別を選ぶ（scan は透明ブロックが多いステージで有効） */
+const DROPPABLE_ITEM_TYPES: readonly ItemType[] = ['scan', 'widepaddle', 'speeddown', 'extralife'];
+function pickRandomItemType(): ItemType {
+  return DROPPABLE_ITEM_TYPES[Math.floor(Math.random() * DROPPABLE_ITEM_TYPES.length)];
+}
+
+/** マウスがいずれかのインタラクティブボタン上にあるか判定する */
+function isOverAnyButton(cx: number, cy: number, state: GameState): boolean {
+  // HUD ボタン
+  if (cy <= HUD_BUTTON_Y_MAX) {
+    if (Math.abs(cx - HUD_BGM_BUTTON_X) < HUD_BTN_HALF_W) return true;
+    if (Math.abs(cx - HUD_PAUSE_BUTTON_X) < HUD_BTN_HALF_W) return true;
+  }
+  const { status } = state;
+  if (status === 'start' || status === 'gameover' || status === 'stageCleared' || status === 'victory' || status === 'stopped') {
+    if (hitTest(cx, cy, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H)) return true;
+    if (hitTest(cx, cy, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H)) return true;
+  }
+  if (status === 'stageSelect') {
+    for (let i = 0; i < TOTAL_STAGES; i++) {
+      const btnY = STAGE_BTN_FIRST_Y + i * (STAGE_BTN_H + STAGE_BTN_GAP);
+      if (hitTest(cx, cy, STAGE_BTN_X, btnY, STAGE_BTN_W, STAGE_BTN_H)) return true;
+    }
+    if (hitTest(cx, cy, STAGE_BACK_BTN_X, STAGE_BACK_BTN_Y, STAGE_BACK_BTN_W, STAGE_BACK_BTN_H)) return true;
+  }
+  return false;
+}
+
 /** ゲームループのカスタムフック */
 export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   const gameStateRef = useRef<GameState>(createInitialState(1));
@@ -79,6 +119,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   const scorePopupsRef = useRef<ScorePopup[]>([]);
   const unmountedRef = useRef<boolean>(false);
   const bgmEnabledRef = useRef<boolean>(false);
+  const mousePosRef = useRef<{ x: number; y: number } | null>(null);
 
   /** ゲームを新規開始する */
   const startGame = useCallback((stage = 1) => {
@@ -88,7 +129,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     const newState = createInitialState(stage);
     newState.status = 'playing';
     gameStateRef.current = newState;
-    if (bgmEnabledRef.current) startBGM();
+    if (bgmEnabledRef.current) startBGM(stage);
   }, []);
 
   /** ゲームを新規開始する（スコア・ライフを引き継ぐ） */
@@ -101,7 +142,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     newState.score = score;
     newState.lives = lives;
     gameStateRef.current = newState;
-    if (bgmEnabledRef.current) startBGM();
+    if (bgmEnabledRef.current) startBGM(stage);
   }, []);
 
   /** 1フレーム分の物理演算・衝突判定・エフェクト更新 */
@@ -111,6 +152,25 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
     const keys = keyStateRef.current;
     const { paddle, ball } = state;
+
+    // ── パドル幅更新（ワイドパドル効果） ──────────────────
+    if (state.widePaddleTimer > 0) {
+      state.widePaddleTimer--;
+      paddle.width = PADDLE_WIDTH_WIDE;
+    } else {
+      paddle.width = PADDLE_WIDTH;
+    }
+
+    // ── ボール減速効果タイマー ────────────────────────────
+    if (state.slowBallTimer > 0) {
+      state.slowBallTimer--;
+    }
+
+    // ── アイテム取得エフェクトタイマー ─────────────────────
+    if (state.collectEffect && state.collectEffect.timer > 0) {
+      state.collectEffect.timer--;
+      if (state.collectEffect.timer <= 0) state.collectEffect = null;
+    }
 
     if (keys.ArrowLeft)  paddle.x = Math.max(0, paddle.x - PADDLE_SPEED);
     if (keys.ArrowRight) paddle.x = Math.min(CANVAS_WIDTH - paddle.width, paddle.x + PADDLE_SPEED);
@@ -147,10 +207,47 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
     if (state.scanTimer > 0) state.scanTimer -= 1;
 
-    const collectedItemType = checkItemCollection(ball, state.items);
-    if (collectedItemType === 'scan') {
-      state.scanTimer = SCAN_DURATION_FRAMES;
-      spawnParticles(particlesRef.current, ball.x, ball.y, '#00ffff');
+    // ── 落下アイテムの移動 ──────────────────────────────────
+    updateFallingItems(state.items, CANVAS_HEIGHT);
+
+    // ── アイテム収集 ────────────────────────────────────────
+    const collectedItem = checkItemCollection(ball, state.items);
+    if (collectedItem) {
+      const effectColor = ITEM_COLORS[collectedItem.type] ?? '#ffffff';
+      const effectLabel = ITEM_LABELS[collectedItem.type] ?? 'ITEM!';
+      state.collectEffect = {
+        type: collectedItem.type,
+        timer: COLLECT_EFFECT_FRAMES,
+        maxTimer: COLLECT_EFFECT_FRAMES,
+        color: effectColor,
+        x: collectedItem.x,
+        y: collectedItem.y,
+        label: effectLabel,
+      };
+      // 大量のパーティクルを3回スポーン（派手なバースト）
+      for (let b = 0; b < 3; b++) {
+        spawnParticles(
+          particlesRef.current,
+          collectedItem.x + (Math.random() - 0.5) * 24,
+          collectedItem.y + (Math.random() - 0.5) * 24,
+          effectColor,
+        );
+      }
+      playItemCollect();
+      switch (collectedItem.type) {
+        case 'scan':
+          state.scanTimer = SCAN_DURATION_FRAMES;
+          break;
+        case 'widepaddle':
+          state.widePaddleTimer = WIDE_PADDLE_FRAMES;
+          break;
+        case 'speeddown':
+          state.slowBallTimer = SLOW_BALL_FRAMES;
+          break;
+        case 'extralife':
+          state.lives = Math.min(state.lives + 1, 5);
+          break;
+      }
     }
 
     updateSpecialBlockTimers(state.blocks);
@@ -188,8 +285,34 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
           spawnScorePopup(scorePopupsRef.current, cx, cy, block.points, block.color);
           playBlockBreak(block.row);
           clearableAlive--;
+
+          // ── ランダムアイテムドロップ ────────────────────
+          if (Math.random() < ITEM_DROP_RATE) {
+            const fallingCount = state.items.filter((it) => it.alive && it.vy > 0).length;
+            if (fallingCount < MAX_ACTIVE_ITEMS) {
+              const dropItem: Item = {
+                x: cx,
+                y: cy,
+                vy: ITEM_FALL_SPEED,
+                radius: 10,
+                type: pickRandomItemType(),
+                alive: true,
+              };
+              state.items.push(dropItem);
+            }
+          }
         }
         accelerateBallTo(ball, calcBallSpeed(blocksDestroyedRef.current));
+        // ── ボール減速中は速度を上限設定 ──────────────────
+        if (state.slowBallTimer > 0) {
+          const maxSlowSpeed = calcBallSpeed(blocksDestroyedRef.current) * SLOW_BALL_FACTOR;
+          const currentSpeed = Math.hypot(ball.vx, ball.vy);
+          if (currentSpeed > maxSlowSpeed) {
+            const ratio = maxSlowSpeed / currentSpeed;
+            ball.vx *= ratio;
+            ball.vy *= ratio;
+          }
+        }
       } else if (result === 'hit' && block.type === 'multi') {
         spawnParticles(particlesRef.current, block.x + block.width / 2, block.y + block.height / 2, block.color);
         playBlockBreak(block.row);
@@ -223,7 +346,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    drawFrame(ctx, gameStateRef.current, particlesRef.current, scorePopupsRef.current, bgmEnabledRef.current);
+    drawFrame(ctx, gameStateRef.current, particlesRef.current, scorePopupsRef.current, bgmEnabledRef.current, mousePosRef.current);
   }, [canvasRef]);
 
   /** キャンバス座標のX値（スケール補正済み）を返す */
@@ -255,7 +378,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     if (Math.abs(canvasX - HUD_BGM_BUTTON_X) < HUD_BTN_HALF_W) {
       bgmEnabledRef.current = !bgmEnabledRef.current;
       if (bgmEnabledRef.current) {
-        if (status === 'playing') startBGM();
+        if (status === 'playing') startBGM(state.currentStage);
       } else {
         stopBGM();
       }
@@ -413,9 +536,9 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
     if (e.key === 'm' || e.key === 'M') {
       bgmEnabledRef.current = !bgmEnabledRef.current;
-      const { status } = gameStateRef.current;
+      const { status, currentStage } = gameStateRef.current;
       if (bgmEnabledRef.current) {
-        if (status === 'playing') startBGM();
+        if (status === 'playing') startBGM(currentStage);
       } else {
         stopBGM();
       }
@@ -430,16 +553,36 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   }, []);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!canMovePaddle(gameStateRef.current.status)) return;
-    const mouseX = toCanvasX(e.clientX);
-    gameStateRef.current.paddle.x = Math.max(0, Math.min(CANVAS_WIDTH - PADDLE_WIDTH, mouseX - PADDLE_WIDTH / 2));
-  }, [toCanvasX]);
+    const canvasX = toCanvasX(e.clientX);
+    const canvasY = toCanvasY(e.clientY);
+    mousePosRef.current = { x: canvasX, y: canvasY };
+
+    // パドル移動
+    if (canMovePaddle(gameStateRef.current.status)) {
+      gameStateRef.current.paddle.x = Math.max(
+        0,
+        Math.min(CANVAS_WIDTH - gameStateRef.current.paddle.width, canvasX - gameStateRef.current.paddle.width / 2),
+      );
+    }
+
+    // ボタン上ならポインターカーソル
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.style.cursor = isOverAnyButton(canvasX, canvasY, gameStateRef.current) ? 'pointer' : 'default';
+    }
+  }, [toCanvasX, toCanvasY, canvasRef]);
+
+  const handleMouseLeave = useCallback(() => {
+    mousePosRef.current = null;
+    const canvas = canvasRef.current;
+    if (canvas) canvas.style.cursor = 'default';
+  }, [canvasRef]);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
     e.preventDefault();
     if (!canMovePaddle(gameStateRef.current.status)) return;
     const touchX = toCanvasX(e.touches[0].clientX);
-    gameStateRef.current.paddle.x = Math.max(0, Math.min(CANVAS_WIDTH - PADDLE_WIDTH, touchX - PADDLE_WIDTH / 2));
+    gameStateRef.current.paddle.x = Math.max(0, Math.min(CANVAS_WIDTH - gameStateRef.current.paddle.width, touchX - gameStateRef.current.paddle.width / 2));
   }, [toCanvasX]);
 
   const handleTouchStart = useCallback((e: TouchEvent) => {
@@ -455,7 +598,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     if (handleOverlayTap(canvasX, canvasY)) return;
 
     // それ以外のタップでパドルを移動
-    gameStateRef.current.paddle.x = Math.max(0, Math.min(CANVAS_WIDTH - PADDLE_WIDTH, canvasX - PADDLE_WIDTH / 2));
+    gameStateRef.current.paddle.x = Math.max(0, Math.min(CANVAS_WIDTH - gameStateRef.current.paddle.width, canvasX - gameStateRef.current.paddle.width / 2));
   }, [toCanvasX, toCanvasY, handleHUDTap, handleOverlayTap]);
 
   const handleClick = useCallback((e: MouseEvent) => {
@@ -475,6 +618,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseleave', handleMouseLeave);
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('click', handleClick);
@@ -492,10 +636,11 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('mouseleave', handleMouseLeave);
       canvas.removeEventListener('touchmove', handleTouchMove);
       canvas.removeEventListener('touchstart', handleTouchStart);
       canvas.removeEventListener('click', handleClick);
       cancelAnimationFrame(animFrameRef.current);
     };
-  }, [canvasRef, update, draw, handleKeyDown, handleKeyUp, handleMouseMove, handleTouchMove, handleTouchStart, handleClick]);
+  }, [canvasRef, update, draw, handleKeyDown, handleKeyUp, handleMouseMove, handleMouseLeave, handleTouchMove, handleTouchStart, handleClick]);
 }

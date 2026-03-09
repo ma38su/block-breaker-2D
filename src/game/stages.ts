@@ -260,6 +260,7 @@ export function createStage4(): StageData {
       radius: 10,
       type: 'scan',
       alive: true,
+      vy: 0,
     },
     {
       x: bx(6) + BLOCK_WIDTH / 2,
@@ -267,6 +268,7 @@ export function createStage4(): StageData {
       radius: 10,
       type: 'scan',
       alive: true,
+      vy: 0,
     },
   ];
 
