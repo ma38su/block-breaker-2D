@@ -65,8 +65,6 @@ export const BOMB_EXPLOSION_RADIUS = 90;
 export const TRANSPARENT_FLASH_FRAMES = 25;
 /** 再生ブロックが復活するまでの時間（フレーム数 = 15秒 @ 60fps） */
 export const REGEN_FRAMES = 900;
-/** スキャンアイテム取得時の透明ブロック可視化時間（フレーム数 = 5秒） */
-export const SCAN_DURATION_FRAMES = 300;
 // ── アイテム ──────────────────────────────────────────────────
 /** ブロック破壊時のアイテムドロップ確率（0〜1） */
 export const ITEM_DROP_RATE = 0.07;
@@ -83,32 +81,43 @@ export const WIDE_PADDLE_FRAMES = 600;
 export const SLOW_BALL_FRAMES = 480;
 /** ボール減速時の速度係数 */
 export const SLOW_BALL_FACTOR = 0.55;
+/** ボール加速アイテムの持続フレーム数（5秒 @ 60fps） */
+export const SPEED_UP_FRAMES = 300;
+/** ボール加速時の速度係数 */
+export const SPEED_UP_FACTOR = 1.6;
+/** ボール拡大時の半径（px） */
+export const BIG_BALL_RADIUS = 16;
+/** ボール拡大アイテムの持続フレーム数（6秒 @ 60fps） */
+export const BIG_BALL_FRAMES = 360;
 
 /** アイテム取得エフェクトの持続フレーム数 */
 export const COLLECT_EFFECT_FRAMES = 70;
 
 /** アイテム種別ごとの色 */
 export const ITEM_COLORS: Readonly<Record<string, string>> = {
-  scan:       '#00ffff',
   widepaddle: '#0099ff',
   speeddown:  '#00ff88',
   extralife:  '#ff66aa',
+  speedup:    '#ffaa00',
+  bigball:    '#ff6600',
 } as const;
 
 /** アイテム種別ごとの表示ラベル */
 export const ITEM_LABELS: Readonly<Record<string, string>> = {
-  scan:       'SCAN!',
   widepaddle: 'WIDE PADDLE!',
   speeddown:  'SLOW BALL!',
   extralife:  'EXTRA LIFE!',
+  speedup:    'SPEED UP!',
+  bigball:    'BIG BALL!',
 } as const;
 
 /** アイテム種別ごとのアイコン（canvas fillText 用） */
 export const ITEM_ICONS: Readonly<Record<string, string>> = {
-  scan:       '👁',
   widepaddle: '⬛',
   speeddown:  '🐢',
   extralife:  '❤',
+  speedup:    '🚀',
+  bigball:    '⬤',
 } as const;
 
 /** 爆弾ブロックの色 */
@@ -192,7 +201,7 @@ export const STAGE_GIMMICK_LABELS = [
   'Multi-Layer Blocks',
   'Bomb Chain Reaction',
   'Hourglass + Moving Wall',
-  'Transparent + Scan Item',
+  'Transparent Blocks',
   'Orbiting Wall + Regen',
 ] as const;
 

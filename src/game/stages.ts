@@ -7,7 +7,7 @@
  * ステージ4: 暗号化エリア - 迷路型 + 透明ブロック + スキャンアイテム
  * ステージ5: マザー・コア  - 要塞型 + 周回する壊せない障害物 + 再生ブロック
  */
-import type { Block, MovingObstacle, Item } from '../types';
+import type { Block, MovingObstacle } from '../types';
 import {
   BLOCK_WIDTH,
   BLOCK_HEIGHT,
@@ -221,7 +221,6 @@ export function createStage3(): StageData {
 // ──────────────────────────────────────────────────────────────────────────
 // ステージ4: 暗号化エリア（Ghost Data）
 // 迷路型：見えない壁（透明ブロック）が張り巡らされている
-// スキャンアイテムを取ると一定時間すべての透明ブロックが可視化される
 // ──────────────────────────────────────────────────────────────────────────
 export function createStage4(): StageData {
   const blocks: Block[] = [
@@ -252,27 +251,7 @@ export function createStage4(): StageData {
     normal(2, 6), normal(3, 6), normal(4, 6), normal(5, 6),
   ];
 
-  // スキャンアイテム：ステージ中央付近に配置
-  const items: Item[] = [
-    {
-      x: bx(1) + BLOCK_WIDTH / 2,
-      y: by(2) + BLOCK_HEIGHT / 2,
-      radius: 10,
-      type: 'scan',
-      alive: true,
-      vy: 0,
-    },
-    {
-      x: bx(6) + BLOCK_WIDTH / 2,
-      y: by(2) + BLOCK_HEIGHT / 2,
-      radius: 10,
-      type: 'scan',
-      alive: true,
-      vy: 0,
-    },
-  ];
-
-  return { blocks, obstacles: [], items };
+  return { blocks, obstacles: [], items: [] };
 }
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -247,6 +247,8 @@ let masterGain: GainNode | null = null;
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 let isActive = false;
 let currentConfig: BGMConfig | null = null;
+/** 再生速度の倍率（1.0 = 通常, >1.0 = 速い）*/
+let tempoMultiplier = 1.0;
 
 let melodyIdx = 0;
 let bassIdx = 0;
@@ -325,23 +327,26 @@ function runScheduler(): void {
 
   while (melodyNextTime < horizon) {
     const [freq, dur] = melody[melodyIdx];
-    scheduleNote(ctx, masterGain, freq, melodyNextTime, dur, melodyWave, melodyVol);
-    melodyNextTime += dur;
+    const scaledDur = dur / tempoMultiplier;
+    scheduleNote(ctx, masterGain, freq, melodyNextTime, scaledDur, melodyWave, melodyVol);
+    melodyNextTime += scaledDur;
     melodyIdx = (melodyIdx + 1) % melody.length;
   }
 
   while (bassNextTime < horizon) {
     const [freq, dur] = bass[bassIdx];
-    scheduleNote(ctx, masterGain, freq, bassNextTime, dur, bassWave, bassVol);
-    bassNextTime += dur;
+    const scaledDur = dur / tempoMultiplier;
+    scheduleNote(ctx, masterGain, freq, bassNextTime, scaledDur, bassWave, bassVol);
+    bassNextTime += scaledDur;
     bassIdx = (bassIdx + 1) % bass.length;
   }
 
   if (arp && arpVol > 0) {
     while (arpNextTime < horizon) {
       const [freq, dur] = arp[arpIdx];
-      scheduleNote(ctx, masterGain, freq, arpNextTime, dur, arpWave, arpVol);
-      arpNextTime += dur;
+      const scaledDur = dur / tempoMultiplier;
+      scheduleNote(ctx, masterGain, freq, arpNextTime, scaledDur, arpWave, arpVol);
+      arpNextTime += scaledDur;
       arpIdx = (arpIdx + 1) % arp.length;
     }
   }
@@ -351,7 +356,7 @@ function runScheduler(): void {
     if (kickPattern[stepInBar]) {
       scheduleKick(ctx, masterGain, kickNextTime);
     }
-    kickNextTime += kickStepDuration;
+    kickNextTime += kickStepDuration / tempoMultiplier;
     kickStepIdx++;
   }
 }

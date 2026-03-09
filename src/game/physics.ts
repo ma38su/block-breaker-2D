@@ -33,6 +33,7 @@ export function resetBall(ball: Ball, paddleX: number, blocksDestroyed: number):
   const angle = (-(MIN_RESET_ANGLE_DEG + Math.random() * RESET_ANGLE_RANGE_DEG)) * (Math.PI / 180);
   ball.x = paddleX + PADDLE_WIDTH / 2;
   ball.y = PADDLE_Y - BALL_RADIUS - 2;
+  ball.radius = BALL_RADIUS;
   ball.vx = speed * Math.cos(angle) * (Math.random() > 0.5 ? 1 : -1);
   ball.vy = -Math.abs(speed * Math.sin(angle));
 }
