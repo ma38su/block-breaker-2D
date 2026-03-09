@@ -28,6 +28,7 @@ import {
   BIG_BALL_FRAMES,
   BALL_RADIUS,
   BALL_BASE_SPEED,
+  LASER_FRAMES,
   ITEM_DROP_RATE,
   ITEM_FALL_SPEED,
   MAX_ACTIVE_ITEMS,
@@ -48,6 +49,7 @@ import {
   BTN_SELECT_H,
   STAGE_BTN_X,
   STAGE_BTN_W,
+  STAGE_BTN_COL2_X,
   STAGE_BTN_H,
   STAGE_BTN_FIRST_Y,
   STAGE_BTN_GAP,
@@ -64,6 +66,7 @@ import {
   isBallOutOfBounds,
   resolveBlockCollision,
   calcBallSpeed,
+  calcSpeedLevel,
   accelerateBallTo,
   explodeBombs,
   updateObstacle,
@@ -98,7 +101,7 @@ function canMovePaddle(status: string): boolean {
 }
 
 /** ランダムドロップするアイテム種別（scan はステージ4専用配置のため除外） */
-const DROPPABLE_ITEM_TYPES: readonly ItemType[] = ['widepaddle', 'speeddown', 'extralife', 'speedup', 'bigball'];
+const DROPPABLE_ITEM_TYPES: readonly ItemType[] = ['widepaddle', 'speeddown', 'extralife', 'speedup', 'bigball', 'laser'];
 function pickRandomItemType(): ItemType {
   return DROPPABLE_ITEM_TYPES[Math.floor(Math.random() * DROPPABLE_ITEM_TYPES.length)];
 }
@@ -117,8 +120,11 @@ function isOverAnyButton(cx: number, cy: number, state: GameState): boolean {
   }
   if (status === 'stageSelect') {
     for (let i = 0; i < TOTAL_STAGES; i++) {
-      const btnY = STAGE_BTN_FIRST_Y + i * (STAGE_BTN_H + STAGE_BTN_GAP);
-      if (hitTest(cx, cy, STAGE_BTN_X, btnY, STAGE_BTN_W, STAGE_BTN_H)) return true;
+      const col = Math.floor(i / 5);
+      const row = i % 5;
+      const btnX = col === 0 ? STAGE_BTN_X : STAGE_BTN_COL2_X;
+      const btnY = STAGE_BTN_FIRST_Y + row * (STAGE_BTN_H + STAGE_BTN_GAP);
+      if (hitTest(cx, cy, btnX, btnY, STAGE_BTN_W, STAGE_BTN_H)) return true;
     }
     if (hitTest(cx, cy, STAGE_BACK_BTN_X, STAGE_BACK_BTN_Y, STAGE_BACK_BTN_W, STAGE_BACK_BTN_H)) return true;
   }
@@ -131,6 +137,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   const keyStateRef = useRef<KeyState>({ ArrowLeft: false, ArrowRight: false });
   const animFrameRef = useRef<number>(0);
   const blocksDestroyedRef = useRef<number>(0);
+  const playFramesRef = useRef<number>(0);
   const particlesRef = useRef<Particle[]>([]);
   const scorePopupsRef = useRef<ScorePopup[]>([]);
   const unmountedRef = useRef<boolean>(false);
@@ -140,6 +147,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   /** ゲームを新規開始する */
   const startGame = useCallback((stage = 1) => {
     blocksDestroyedRef.current = 0;
+    playFramesRef.current = 0;
     particlesRef.current = [];
     scorePopupsRef.current = [];
     const newState = createInitialState(stage);
@@ -151,6 +159,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   /** ゲームを新規開始する（スコア・ライフを引き継ぐ） */
   const continueToStage = useCallback((stage: number, score: number, lives: number) => {
     blocksDestroyedRef.current = 0;
+    playFramesRef.current = 0;
     particlesRef.current = [];
     scorePopupsRef.current = [];
     const newState = createInitialState(stage);
@@ -177,6 +186,17 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
     const { ball } = state;
 
+    // ── 経過フレームのカウント（スピードレベル計算用） ──────
+    playFramesRef.current++;
+
+    // ── スピードレベルの更新（時間ベース、レベル2〜5） ──────
+    const newSpeedLevel = calcSpeedLevel(playFramesRef.current);
+    if (newSpeedLevel > state.speedLevel) {
+      state.speedLevel = newSpeedLevel;
+      // 即時レベルアップ：現在のボール速度が新レベル未満なら加速
+      accelerateBallTo(ball, calcBallSpeed(newSpeedLevel));
+    }
+
     // ── パドル幅更新（ワイドパドル効果） ──────────────────
     if (state.widePaddleTimer > 0) {
       state.widePaddleTimer--;
@@ -194,7 +214,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     const ballSpeed = Math.hypot(ball.vx, ball.vy);
     if (state.speedUpTimer > 0) {
       state.speedUpTimer--;
-      const targetSpeed = calcBallSpeed(blocksDestroyedRef.current) * SPEED_UP_FACTOR;
+      const targetSpeed = calcBallSpeed(state.speedLevel) * SPEED_UP_FACTOR;
       if (ballSpeed > 0 && ballSpeed < targetSpeed) {
         ball.vx *= targetSpeed / ballSpeed;
         ball.vy *= targetSpeed / ballSpeed;
@@ -207,6 +227,11 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       if (state.bigBallTimer === 0) {
         ball.radius = BALL_RADIUS;
       }
+    }
+
+    // ── レーザー（軌道表示）タイマー ─────────────────────
+    if (state.laserTimer > 0) {
+      state.laserTimer--;
     }
 
     // ── アイテム取得エフェクトタイマー ─────────────────────
@@ -235,10 +260,10 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       } else {
         state.status = 'paused';
         const capturedState = state;
-        const capturedDestroyed = blocksDestroyedRef.current;
+        const capturedSpeedLevel = state.speedLevel;
         setTimeout(() => {
           if (unmountedRef.current) return;
-          resetBall(capturedState.ball, capturedState.paddle.x, capturedDestroyed);
+          resetBall(capturedState.ball, capturedState.paddle.x, capturedSpeedLevel);
           gameStateRef.current.status = 'playing';
         }, 1000);
       }
@@ -285,7 +310,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
           state.slowBallTimer = SLOW_BALL_FRAMES;
           state.speedUpTimer = 0;
           // 即時減速
-          const slowCap = calcBallSpeed(blocksDestroyedRef.current) * SLOW_BALL_FACTOR;
+          const slowCap = calcBallSpeed(state.speedLevel) * SLOW_BALL_FACTOR;
           const spd = Math.hypot(ball.vx, ball.vy);
           if (spd > slowCap) {
             ball.vx *= slowCap / spd;
@@ -297,7 +322,7 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
           state.speedUpTimer = SPEED_UP_FRAMES;
           state.slowBallTimer = 0;
           // 即時加速
-          const baseSpeed = calcBallSpeed(blocksDestroyedRef.current);
+          const baseSpeed = calcBallSpeed(state.speedLevel);
           const targetSpeed = baseSpeed * SPEED_UP_FACTOR;
           const spd = Math.hypot(ball.vx, ball.vy);
           if (spd > 0 && spd < targetSpeed) {
@@ -313,6 +338,9 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
         case 'extralife':
           state.lives = Math.min(state.lives + 1, 5);
           break;
+        case 'laser':
+          state.laserTimer = LASER_FRAMES;
+          break;
       }
     }
 
@@ -321,13 +349,16 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
     let clearableAlive = 0;
     let needRecount = false;
 
+    // ビッグボール中は壊せるブロックを貫通する
+    const penetrate = state.bigBallTimer > 0;
+
     for (const block of state.blocks) {
       if (block.alive && block.type !== 'indestructible' && block.type !== 'regenerating') {
         clearableAlive++;
       }
       if (!block.alive) continue;
 
-      const result = resolveBlockCollision(ball, block);
+      const result = resolveBlockCollision(ball, block, penetrate);
       if (result === null) continue;
 
       if (result === 'destroyed') {
@@ -368,10 +399,10 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
             }
           }
         }
-        accelerateBallTo(ball, calcBallSpeed(blocksDestroyedRef.current));
+        accelerateBallTo(ball, calcBallSpeed(state.speedLevel));
         // ── ボール減速中は速度を上限設定 ──────────────────
         if (state.slowBallTimer > 0) {
-          const maxSlowSpeed = calcBallSpeed(blocksDestroyedRef.current) * SLOW_BALL_FACTOR;
+          const maxSlowSpeed = calcBallSpeed(state.speedLevel) * SLOW_BALL_FACTOR;
           const currentSpeed = Math.hypot(ball.vx, ball.vy);
           if (currentSpeed > maxSlowSpeed) {
             const ratio = maxSlowSpeed / currentSpeed;
@@ -493,10 +524,13 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
     // ── ステージ選択画面 ──────────────────────────────────────
     if (status === 'stageSelect') {
-      // 各ステージボタン
+      // 各ステージボタン（2列レイアウト：1-5列目左、6-10列目右）
       for (let i = 0; i < TOTAL_STAGES; i++) {
-        const btnY = STAGE_BTN_FIRST_Y + i * (STAGE_BTN_H + STAGE_BTN_GAP);
-        if (hitTest(canvasX, canvasY, STAGE_BTN_X, btnY, STAGE_BTN_W, STAGE_BTN_H)) {
+        const col = Math.floor(i / 5);
+        const row = i % 5;
+        const btnX = col === 0 ? STAGE_BTN_X : STAGE_BTN_COL2_X;
+        const btnY = STAGE_BTN_FIRST_Y + row * (STAGE_BTN_H + STAGE_BTN_GAP);
+        if (hitTest(canvasX, canvasY, btnX, btnY, STAGE_BTN_W, STAGE_BTN_H)) {
           startGame(i + 1);
           return true;
         }

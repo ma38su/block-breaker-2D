@@ -372,12 +372,12 @@ export function setBGMTempo(multiplier: number): void {
 /**
  * 指定ステージの BGM を最初から開始する
  * すでに再生中の場合は何もしない
- * @param stage ステージ番号（1〜5）
+ * @param stage ステージ番号（1〜10、5を超える場合は既存BGMをサイクル再利用）
  */
 export function startBGM(stage = 1): void {
   if (isActive) return;
 
-  const stageIndex = Math.max(0, Math.min(stage - 1, STAGE_BGMS.length - 1));
+  const stageIndex = (stage - 1) % STAGE_BGMS.length;
   currentConfig = STAGE_BGMS[stageIndex];
   tempoMultiplier = 1.0;
 

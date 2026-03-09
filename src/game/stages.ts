@@ -1,11 +1,16 @@
 /**
- * 全5ステージのレイアウト定義モジュール
+ * 全10ステージのレイアウト定義モジュール
  *
  * ステージ1: 軌道衛星    - ピクセルアート型（人工衛星）+ 多層ブロック
  * ステージ2: エネルギー炉 - サーキット型 + 爆弾ブロック（連鎖爆発）
  * ステージ3: 時空の歪み   - 砂時計型 + 横移動する壊せない障害物
  * ステージ4: 暗号化エリア - 迷路型 + 透明ブロック + スキャンアイテム
  * ステージ5: マザー・コア  - 要塞型 + 周回する壊せない障害物 + 再生ブロック
+ * ステージ6: ネオン迷路   - 壊せない壁による迷路 + 多層ブロック
+ * ステージ7: 連鎖核融合   - チェッカーボード爆弾 + 多層コア
+ * ステージ8: デュアルコア  - 左右2つの周回障害物 + 多層ブロック
+ * ステージ9: 虚無の環     - 再生ブロックのリング + 透明迷路
+ * ステージ10: Ωファイナル  - 全ブロック種類 + 複数の障害物
  */
 import type { Block, MovingObstacle, Item } from '../types';
 import {
@@ -19,6 +24,7 @@ import {
   CANVAS_WIDTH,
   BOMB_COLOR,
   REGEN_COLOR,
+  INDESTRUCTIBLE_COLOR,
   MULTI_HP_COLORS,
 } from '../constants';
 
@@ -92,6 +98,11 @@ function transparent(col: number, row: number): Block {
 /** 再生ブロック（破壊後15秒で復活） */
 function regen(col: number, row: number): Block {
   return makeBlock(col, row, 'regenerating', 1, REGEN_COLOR, ROW_POINTS[1]);
+}
+
+/** 壊せないブロック（障害物ブロック、クリア条件に含まれない） */
+function indestructible(col: number, row: number): Block {
+  return makeBlock(col, row, 'indestructible', 999, INDESTRUCTIBLE_COLOR, 0);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -349,6 +360,291 @@ export function createStage(stageNumber: number): StageData {
     case 3: return createStage3();
     case 4: return createStage4();
     case 5: return createStage5();
+    case 6: return createStage6();
+    case 7: return createStage7();
+    case 8: return createStage8();
+    case 9: return createStage9();
+    case 10: return createStage10();
     default: return createStage1();
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ステージ6: ネオン迷路（Neon Maze）
+// 壊せない壁によって通路が区切られ、その内側に多層ブロックが配置される
+// ──────────────────────────────────────────────────────────────────────────
+export function createStage6(): StageData {
+  const blocks: Block[] = [
+    // ──── 上段 通常ブロック ────
+    normal(0, 0), normal(1, 0), normal(2, 0), normal(3, 0),
+    normal(4, 0), normal(5, 0), normal(6, 0), normal(7, 0),
+
+    // ──── 迷路外壁（行1） ────
+    indestructible(0, 1), indestructible(3, 1),
+    indestructible(4, 1), indestructible(7, 1),
+
+    // ──── 迷路内部（行2）：多層ブロック ────
+    multi(1, 2, 2), multi(2, 2, 2),
+    multi(5, 2, 2), multi(6, 2, 2),
+
+    // ──── 迷路仕切り（行3） ────
+    indestructible(0, 3), indestructible(2, 3),
+    indestructible(5, 3), indestructible(7, 3),
+
+    // ──── 中央多層コア（行3） ────
+    multi(3, 3, 3), multi(4, 3, 3),
+
+    // ──── 迷路内部（行4）：多層ブロック ────
+    multi(1, 4, 2), multi(2, 4, 2),
+    multi(5, 4, 2), multi(6, 4, 2),
+
+    // ──── 迷路外壁（行5） ────
+    indestructible(0, 5), indestructible(3, 5),
+    indestructible(4, 5), indestructible(7, 5),
+
+    // ──── 下段 通常ブロック ────
+    normal(0, 6), normal(1, 6), normal(2, 6), normal(3, 6),
+    normal(4, 6), normal(5, 6), normal(6, 6), normal(7, 6),
+  ];
+
+  return { blocks, obstacles: [], items: [] };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ステージ7: 連鎖核融合（Chain Fusion）
+// チェッカーボード状に爆弾と多層ブロックが交互に並び、連鎖が波及する
+// ──────────────────────────────────────────────────────────────────────────
+export function createStage7(): StageData {
+  const blocks: Block[] = [];
+
+  for (let row = 0; row < 6; row++) {
+    for (let col = 0; col < 8; col++) {
+      const isBombCell = (row + col) % 2 === 0;
+      if (isBombCell) {
+        // 角は多層ブロック（HP2）、その他は爆弾
+        const isCorner = (row === 0 || row === 5) && (col === 0 || col === 7);
+        if (isCorner) {
+          blocks.push(multi(col, row, 3));
+        } else {
+          blocks.push(bomb(col, row));
+        }
+      } else {
+        // 中心行は多層ブロック（HP2）、外周は通常
+        if (row >= 2 && row <= 3 && col >= 2 && col <= 5) {
+          blocks.push(multi(col, row, 2));
+        } else {
+          blocks.push(normal(col, row));
+        }
+      }
+    }
+  }
+
+  return { blocks, obstacles: [], items: [] };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ステージ8: デュアルコア（Dual Core）
+// 左右2か所にコアと周回障害物を配置。多層ブロックがコアを守る
+// ──────────────────────────────────────────────────────────────────────────
+export function createStage8(): StageData {
+  const blocks: Block[] = [
+    // ──── 上下の外壁 ────
+    normal(0, 0), normal(1, 0), normal(2, 0), normal(3, 0),
+    normal(4, 0), normal(5, 0), normal(6, 0), normal(7, 0),
+
+    // ──── 左コア周辺（行1〜5） ────
+    multi(0, 1, 2), multi(1, 1, 2), multi(2, 1, 2),
+    multi(0, 2, 2), multi(2, 2, 2),
+    multi(0, 3, 3), multi(2, 3, 3),
+    multi(0, 4, 2), multi(2, 4, 2),
+    multi(0, 5, 2), multi(1, 5, 2), multi(2, 5, 2),
+
+    // ──── 右コア周辺（行1〜5） ────
+    multi(5, 1, 2), multi(6, 1, 2), multi(7, 1, 2),
+    multi(5, 2, 2), multi(7, 2, 2),
+    multi(5, 3, 3), multi(7, 3, 3),
+    multi(5, 4, 2), multi(7, 4, 2),
+    multi(5, 5, 2), multi(6, 5, 2), multi(7, 5, 2),
+
+    // ──── 中央通路のブロック ────
+    normal(3, 2), normal(4, 2),
+    normal(3, 4), normal(4, 4),
+
+    normal(0, 6), normal(1, 6), normal(2, 6), normal(3, 6),
+    normal(4, 6), normal(5, 6), normal(6, 6), normal(7, 6),
+  ];
+
+  // 左コアの中心
+  const leftCoreX = bx(1) + BLOCK_WIDTH / 2;
+  const leftCoreY = by(3) + BLOCK_HEIGHT / 2;
+  // 右コアの中心
+  const rightCoreX = bx(6) + BLOCK_WIDTH / 2;
+  const rightCoreY = by(3) + BLOCK_HEIGHT / 2;
+
+  const orbitR = 44;
+  const angSpeed = 0.035;
+
+  const obstacles: MovingObstacle[] = [
+    // 左コア周回
+    ...[0, 1].map((i) => ({
+      x: leftCoreX + orbitR * Math.cos((i * Math.PI)) - BLOCK_WIDTH / 2,
+      y: leftCoreY + orbitR * Math.sin((i * Math.PI)) - BLOCK_HEIGHT / 2,
+      width: BLOCK_WIDTH,
+      height: BLOCK_HEIGHT,
+      vx: 0, vy: 0,
+      orbiting: true,
+      pivotX: leftCoreX,
+      pivotY: leftCoreY,
+      orbitRadius: orbitR,
+      angle: i * Math.PI,
+      angularSpeed: angSpeed,
+    })),
+    // 右コア周回（逆回転）
+    ...[0, 1].map((i) => ({
+      x: rightCoreX + orbitR * Math.cos((i * Math.PI)) - BLOCK_WIDTH / 2,
+      y: rightCoreY + orbitR * Math.sin((i * Math.PI)) - BLOCK_HEIGHT / 2,
+      width: BLOCK_WIDTH,
+      height: BLOCK_HEIGHT,
+      vx: 0, vy: 0,
+      orbiting: true,
+      pivotX: rightCoreX,
+      pivotY: rightCoreY,
+      orbitRadius: orbitR,
+      angle: i * Math.PI,
+      angularSpeed: -angSpeed,
+    })),
+  ];
+
+  return { blocks, obstacles, items: [] };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ステージ9: 虚無の環（Void Ring）
+// 再生ブロックが環状に並び、内側を透明ブロックが埋める
+// 中央に壊せない十字障害物
+// ──────────────────────────────────────────────────────────────────────────
+export function createStage9(): StageData {
+  const blocks: Block[] = [
+    // ──── 外周リング（再生ブロック） ────
+    regen(0, 0), regen(1, 0), regen(2, 0), regen(3, 0),
+    regen(4, 0), regen(5, 0), regen(6, 0), regen(7, 0),
+
+    regen(0, 1), regen(7, 1),
+    regen(0, 2), regen(7, 2),
+    regen(0, 3), regen(7, 3),
+    regen(0, 4), regen(7, 4),
+    regen(0, 5), regen(7, 5),
+
+    regen(0, 6), regen(1, 6), regen(2, 6), regen(3, 6),
+    regen(4, 6), regen(5, 6), regen(6, 6), regen(7, 6),
+
+    // ──── 内側の透明ブロック（迷路） ────
+    transparent(1, 1), transparent(2, 1), transparent(5, 1), transparent(6, 1),
+    transparent(1, 2), transparent(6, 2),
+    transparent(2, 3), transparent(5, 3),
+    transparent(1, 4), transparent(6, 4),
+    transparent(1, 5), transparent(2, 5), transparent(5, 5), transparent(6, 5),
+
+    // ──── 中央の壊せない十字 ────
+    indestructible(3, 2), indestructible(4, 2),
+    indestructible(3, 3), indestructible(4, 3),
+    indestructible(3, 4), indestructible(4, 4),
+  ];
+
+  return { blocks, obstacles: [], items: [] };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ステージ10: Ωファイナル（Omega Final）
+// 全ブロック種類が登場する最終ステージ
+// プロペラ2基 + 横移動障害物が同時に存在する
+// ──────────────────────────────────────────────────────────────────────────
+export function createStage10(): StageData {
+  const blocks: Block[] = [
+    // ──── 最上段：爆弾ライン ────
+    bomb(0, 0), normal(1, 0), bomb(2, 0), normal(3, 0),
+    normal(4, 0), bomb(5, 0), normal(6, 0), bomb(7, 0),
+
+    // ──── 多層外壁（行1） ────
+    multi(0, 1, 3), multi(1, 1, 2), multi(2, 1, 2), indestructible(3, 1),
+    indestructible(4, 1), multi(5, 1, 2), multi(6, 1, 2), multi(7, 1, 3),
+
+    // ──── 再生ガード（行2） ────
+    regen(0, 2), multi(1, 2, 2),
+    transparent(2, 2), transparent(3, 2),
+    transparent(4, 2), transparent(5, 2),
+    multi(6, 2, 2), regen(7, 2),
+
+    // ──── コア最硬層（行3） ────
+    multi(0, 3, 3), indestructible(1, 3),
+    regen(2, 3), multi(3, 3, 5), multi(4, 3, 5), regen(5, 3),
+    indestructible(6, 3), multi(7, 3, 3),
+
+    // ──── 再生ガード（行4） ────
+    regen(0, 4), multi(1, 4, 2),
+    transparent(2, 4), transparent(3, 4),
+    transparent(4, 4), transparent(5, 4),
+    multi(6, 4, 2), regen(7, 4),
+
+    // ──── 多層外壁（行5） ────
+    multi(0, 5, 3), multi(1, 5, 2), multi(2, 5, 2), indestructible(3, 5),
+    indestructible(4, 5), multi(5, 5, 2), multi(6, 5, 2), multi(7, 5, 3),
+
+    // ──── 最下段：爆弾ライン ────
+    bomb(0, 6), normal(1, 6), bomb(2, 6), normal(3, 6),
+    normal(4, 6), bomb(5, 6), normal(6, 6), bomb(7, 6),
+  ];
+
+  // 中央上部のプロペラ
+  const pivot1X = CANVAS_WIDTH / 2;
+  const pivot1Y = by(1) + BLOCK_HEIGHT / 2;
+  // 中央下部のプロペラ
+  const pivot2X = CANVAS_WIDTH / 2;
+  const pivot2Y = by(5) + BLOCK_HEIGHT / 2;
+
+  const orbitR = 56;
+
+  const orbiting: MovingObstacle[] = [
+    ...[0, 2].map((i) => ({
+      x: pivot1X + orbitR * Math.cos((i * Math.PI) / 2) - BLOCK_WIDTH / 2,
+      y: pivot1Y + orbitR * Math.sin((i * Math.PI) / 2) - BLOCK_HEIGHT / 2,
+      width: BLOCK_WIDTH,
+      height: BLOCK_HEIGHT,
+      vx: 0, vy: 0,
+      orbiting: true,
+      pivotX: pivot1X,
+      pivotY: pivot1Y,
+      orbitRadius: orbitR,
+      angle: (i * Math.PI) / 2,
+      angularSpeed: 0.03,
+    })),
+    ...[0, 2].map((i) => ({
+      x: pivot2X + orbitR * Math.cos((i * Math.PI) / 2) - BLOCK_WIDTH / 2,
+      y: pivot2Y + orbitR * Math.sin((i * Math.PI) / 2) - BLOCK_HEIGHT / 2,
+      width: BLOCK_WIDTH,
+      height: BLOCK_HEIGHT,
+      vx: 0, vy: 0,
+      orbiting: true,
+      pivotX: pivot2X,
+      pivotY: pivot2Y,
+      orbitRadius: orbitR,
+      angle: (i * Math.PI) / 2,
+      angularSpeed: -0.03,
+    })),
+  ];
+
+  // 中央を横断する移動障害物
+  const wallY = by(3) + (BLOCK_HEIGHT + BLOCK_GAP) / 2 - BLOCK_HEIGHT / 2;
+  const movingWall: MovingObstacle = {
+    x: 0,
+    y: wallY,
+    width: BLOCK_WIDTH * 2,
+    height: BLOCK_HEIGHT,
+    vx: 2.5,
+    vy: 0,
+    orbiting: false,
+    pivotX: 0, pivotY: 0, orbitRadius: 0, angle: 0, angularSpeed: 0,
+  };
+
+  return { blocks, obstacles: [...orbiting, movingWall], items: [] };
 }
