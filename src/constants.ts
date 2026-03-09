@@ -12,7 +12,7 @@ export const PADDLE_HEIGHT = 12;
 /** パドルのY座標（画面下部固定） */
 export const PADDLE_Y = 610;
 /** キーボード操作時の1フレームあたり移動速度（ピクセル） */
-export const PADDLE_SPEED = 7;
+export const PADDLE_SPEED = 10;
 
 // ── ボール ────────────────────────────────────────────
 export const BALL_RADIUS = 8;

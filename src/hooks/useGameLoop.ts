@@ -71,6 +71,15 @@ import { drawFrame } from '../game/renderer';
 import { createInitialState } from '../game/state';
 import { startBGM, stopBGM, pauseBGM, resumeBGM } from '../game/bgm';
 
+/** パドルを1ステップ左右に動かす（キーボード操作用の共通処理） */
+function movePaddleByKey(paddle: { x: number; width: number }, key: string, canvasWidth: number): void {
+  if (key === 'ArrowLeft') {
+    paddle.x = Math.max(0, paddle.x - PADDLE_SPEED);
+  } else if (key === 'ArrowRight') {
+    paddle.x = Math.min(canvasWidth - paddle.width, paddle.x + PADDLE_SPEED);
+  }
+}
+
 /** ボタン矩形のヒットテスト */
 function hitTest(clickX: number, clickY: number, buttonX: number, buttonY: number, buttonWidth: number, buttonHeight: number): boolean {
   return clickX >= buttonX && clickX <= buttonX + buttonWidth && clickY >= buttonY && clickY <= buttonY + buttonHeight;
@@ -148,10 +157,18 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   /** 1フレーム分の物理演算・衝突判定・エフェクト更新 */
   const update = useCallback(() => {
     const state = gameStateRef.current;
+    const keys = keyStateRef.current;
+    const { paddle } = state;
+
+    // ── キーボードでのパドル移動（playing / stopped 両方で有効） ──
+    if (canMovePaddle(state.status)) {
+      if (keys.ArrowLeft)  movePaddleByKey(paddle, 'ArrowLeft',  CANVAS_WIDTH);
+      if (keys.ArrowRight) movePaddleByKey(paddle, 'ArrowRight', CANVAS_WIDTH);
+    }
+
     if (state.status !== 'playing') return;
 
-    const keys = keyStateRef.current;
-    const { paddle, ball } = state;
+    const { ball } = state;
 
     // ── パドル幅更新（ワイドパドル効果） ──────────────────
     if (state.widePaddleTimer > 0) {
@@ -171,9 +188,6 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
       state.collectEffect.timer--;
       if (state.collectEffect.timer <= 0) state.collectEffect = null;
     }
-
-    if (keys.ArrowLeft)  paddle.x = Math.max(0, paddle.x - PADDLE_SPEED);
-    if (keys.ArrowRight) paddle.x = Math.min(CANVAS_WIDTH - paddle.width, paddle.x + PADDLE_SPEED);
 
     ball.x += ball.vx;
     ball.y += ball.vy;
@@ -498,6 +512,11 @@ export function useGameLoop(canvasRef: React.RefObject<HTMLCanvasElement | null>
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       keyStateRef.current[e.key as keyof KeyState] = true;
+      // 即時反応：次の RAF フレームを待たずにその場でパドルを動かす
+      const st = gameStateRef.current;
+      if (canMovePaddle(st.status)) {
+        movePaddleByKey(st.paddle, e.key, CANVAS_WIDTH);
+      }
       e.preventDefault();
       return;
     }
