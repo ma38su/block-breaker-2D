@@ -2,7 +2,7 @@
  * Canvas 2D 描画ロジックモジュール
  * ゲーム状態・エフェクト配列を受け取り、純粋に描画だけを行う
  */
-import type { GameState, Particle, ScorePopup, MovingObstacle, Item } from '../types';
+import type { GameState, Particle, ScorePopup, MovingObstacle, Item, CollectEffect } from '../types';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -37,7 +37,18 @@ import {
   STAGE_BACK_BTN_W,
   STAGE_BACK_BTN_Y,
   STAGE_BACK_BTN_H,
+  ITEM_COLORS,
+  ITEM_ICONS,
+  PADDLE_WIDTH,
 } from '../constants';
+
+type MousePos = { x: number; y: number } | null;
+
+/** マウスがボタン矩形上にあるか判定するヘルパー */
+function isHovered(mousePos: MousePos, x: number, y: number, w: number, h: number): boolean {
+  if (!mousePos) return false;
+  return mousePos.x >= x && mousePos.x <= x + w && mousePos.y >= y && mousePos.y <= y + h;
+}
 
 /** 背景とグリッドラインを描画する */
 function drawBackground(ctx: CanvasRenderingContext2D): void {
@@ -148,24 +159,50 @@ function drawObstacles(ctx: CanvasRenderingContext2D, obstacles: MovingObstacle[
   ctx.shadowBlur = 0;
 }
 
-/** アイテムを描画する */
+/** アイテムを種類別に描画する（落下アイテムも静止アイテムも同じ関数で描く） */
 function drawItems(ctx: CanvasRenderingContext2D, items: Item[]): void {
   for (const item of items) {
     if (!item.alive) continue;
-    const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 200);
+    const color = ITEM_COLORS[item.type] ?? '#00ffff';
+    const icon = ITEM_ICONS[item.type] ?? '?';
+    const pulse = 0.75 + 0.25 * Math.sin(Date.now() / 200);
+
+    // 外周グロー
     ctx.globalAlpha = pulse;
-    ctx.shadowColor = '#00ffff';
-    ctx.shadowBlur = 15;
-    ctx.fillStyle = '#00ffff';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(item.x, item.y, item.radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
+
+    // 内側を暗く
     ctx.globalAlpha = 1;
-    ctx.fillStyle = '#003344';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.arc(item.x, item.y, item.radius - 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // アイコン
+    ctx.fillStyle = color;
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('👁', item.x, item.y + 4);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, item.x, item.y);
+    ctx.textBaseline = 'alphabetic';
+
+    // 落下アイテムは下向き三角の矢印で視認性アップ
+    if (item.vy > 0) {
+      ctx.globalAlpha = 0.6 * pulse;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(item.x, item.y + item.radius + 6);
+      ctx.lineTo(item.x - 5, item.y + item.radius + 1);
+      ctx.lineTo(item.x + 5, item.y + item.radius + 1);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
   ctx.globalAlpha = 1;
   ctx.shadowBlur = 0;
@@ -202,29 +239,52 @@ function drawScorePopups(ctx: CanvasRenderingContext2D, popups: ScorePopup[]): v
   ctx.shadowBlur = 0;
 }
 
-/** パドルを描画する */
+/** パドルを描画する（ワイドパドル時はグロー色変化） */
 function drawPaddle(ctx: CanvasRenderingContext2D, state: GameState): void {
   const { x, y, width, height } = state.paddle;
-  ctx.shadowColor = '#00ccff';
-  ctx.shadowBlur = 15;
+  const isWide = width > PADDLE_WIDTH;
+  const paddleColor0 = isWide ? '#00ffcc' : '#00eeff';
+  const paddleColor1 = isWide ? '#0044ff' : '#0066ff';
+  const glowColor   = isWide ? '#00ffcc' : '#00ccff';
+
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = isWide ? 25 : 15;
   const gradient = ctx.createLinearGradient(x, y, x, y + height);
-  gradient.addColorStop(0, '#00eeff');
-  gradient.addColorStop(1, '#0066ff');
+  gradient.addColorStop(0, paddleColor0);
+  gradient.addColorStop(1, paddleColor1);
   ctx.fillStyle = gradient;
   ctx.beginPath();
   ctx.roundRect(x, y, width, height, 4);
   ctx.fill();
   ctx.shadowBlur = 0;
+
+  // ワイドパドル時は上部に発光ライン
+  if (isWide) {
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = '#aaffff';
+    ctx.fillRect(x + 4, y + 1, width - 8, 2);
+    ctx.globalAlpha = 1;
+  }
 }
 
 /** ボールを描画する */
 function drawBall(ctx: CanvasRenderingContext2D, state: GameState): void {
   const { x, y, radius } = state.ball;
-  ctx.shadowColor = '#ffffff';
-  ctx.shadowBlur = 15;
+  const isSlowed = state.slowBallTimer > 0;
+  const isFast   = state.speedUpTimer > 0;
+  const isBig    = state.bigBallTimer > 0;
+
+  let glowColor = '#ffffff';
+  let outerColor = '#aaccff';
+  if (isSlowed)    { glowColor = '#00ff88'; outerColor = '#88ffcc'; }
+  else if (isFast) { glowColor = '#ffaa00'; outerColor = '#ffcc66'; }
+  else if (isBig)  { glowColor = '#ff6600'; outerColor = '#ff9944'; }
+
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = isBig ? 22 : 15;
   const gradient = ctx.createRadialGradient(x - 2, y - 2, 1, x, y, radius);
   gradient.addColorStop(0, '#ffffff');
-  gradient.addColorStop(1, '#aaccff');
+  gradient.addColorStop(1, outerColor);
   ctx.fillStyle = gradient;
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -233,7 +293,7 @@ function drawBall(ctx: CanvasRenderingContext2D, state: GameState): void {
 }
 
 /**
- * ボタン矩形を描画するヘルパー（大きめのタップ領域を視覚化）
+ * ボタン矩形を描画するヘルパー
  */
 function drawButton(
   ctx: CanvasRenderingContext2D,
@@ -245,19 +305,19 @@ function drawButton(
   color: string,
   active = false,
   fontSize = 10,
+  hovered = false,
 ): void {
-  // 背景
+  const isHighlighted = active || hovered;
   ctx.shadowColor = color;
-  ctx.shadowBlur = active ? 14 : 6;
-  ctx.fillStyle = active ? color : 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = isHighlighted ? 18 : 6;
+  ctx.fillStyle = active ? color : (hovered ? `${color}44` : 'rgba(0,0,0,0.55)');
   ctx.strokeStyle = color;
-  ctx.lineWidth = active ? 2.5 : 1.5;
+  ctx.lineWidth = isHighlighted ? 2.5 : 1.5;
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, 8);
   ctx.fill();
   ctx.stroke();
 
-  // ラベル
   ctx.shadowBlur = 0;
   ctx.fillStyle = active ? '#000' : color;
   ctx.font = `bold ${fontSize}px "Press Start 2P", monospace`;
@@ -269,14 +329,13 @@ function drawButton(
 
 /**
  * HUD（スコア・ライフ・BGM・ポーズ・ステージ）を描画する
- * ボタンは視認できる背景付きで描画し、タップ領域を大きく確保する
  */
 function drawHUD(
   ctx: CanvasRenderingContext2D,
   state: GameState,
   bgmEnabled: boolean,
+  mousePos: MousePos,
 ): void {
-  // HUD 背景バー
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   ctx.fillRect(0, 0, CANVAS_WIDTH, 48);
 
@@ -286,7 +345,7 @@ function drawHUD(
   ctx.textAlign = 'left';
   ctx.fillText(`${state.score}`, 8, 20);
 
-  // ステージ番号（左寄せ・小さく）
+  // ステージ番号
   ctx.font = '7px "Press Start 2P", monospace';
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
   ctx.fillText(`ST${state.currentStage}/${TOTAL_STAGES}`, 8, 36);
@@ -297,8 +356,36 @@ function drawHUD(
   ctx.fillStyle = '#ff6688';
   ctx.fillText(`${'♥'.repeat(state.lives)}`, CANVAS_WIDTH - 8, 20);
 
-  // BGM ボタン
+  // アクティブ効果インジケーター
+  const effectY = 36;
+  let effectX = CANVAS_WIDTH - 8;
+  ctx.font = '6px "Press Start 2P", monospace';
+  if (state.widePaddleTimer > 0) {
+    ctx.fillStyle = '#0099ff';
+    ctx.textAlign = 'right';
+    ctx.fillText(`W:${Math.ceil(state.widePaddleTimer / 60)}s`, effectX, effectY);
+    effectX -= 44;
+  }
+  if (state.slowBallTimer > 0) {
+    ctx.fillStyle = '#00ff88';
+    ctx.textAlign = 'right';
+    ctx.fillText(`S:${Math.ceil(state.slowBallTimer / 60)}s`, effectX, effectY);
+    effectX -= 44;
+  }
+  if (state.speedUpTimer > 0) {
+    ctx.fillStyle = '#ffaa00';
+    ctx.textAlign = 'right';
+    ctx.fillText(`F:${Math.ceil(state.speedUpTimer / 60)}s`, effectX, effectY);
+    effectX -= 44;
+  }
+  if (state.bigBallTimer > 0) {
+    ctx.fillStyle = '#ff6600';
+    ctx.textAlign = 'right';
+    ctx.fillText(`B:${Math.ceil(state.bigBallTimer / 60)}s`, effectX, effectY);
+  }
+
   const btnY = 7;
+  const bgmHovered = isHovered(mousePos, HUD_BGM_BUTTON_X - HUD_BTN_W / 2, btnY, HUD_BTN_W, HUD_BTN_H);
   drawButton(
     ctx,
     HUD_BGM_BUTTON_X - HUD_BTN_W / 2,
@@ -309,10 +396,11 @@ function drawHUD(
     bgmEnabled ? '#00ff88' : 'rgba(255,255,255,0.35)',
     bgmEnabled,
     9,
+    bgmHovered,
   );
 
-  // ポーズ / 再開ボタン
   const isPlaying = state.status === 'playing';
+  const pauseHovered = isHovered(mousePos, HUD_PAUSE_BUTTON_X - HUD_BTN_W / 2, btnY, HUD_BTN_W, HUD_BTN_H);
   drawButton(
     ctx,
     HUD_PAUSE_BUTTON_X - HUD_BTN_W / 2,
@@ -323,6 +411,7 @@ function drawHUD(
     isPlaying ? 'rgba(255,255,255,0.6)' : '#ffcc00',
     !isPlaying,
     12,
+    pauseHovered,
   );
 }
 
@@ -366,62 +455,190 @@ function drawLines(
 }
 
 /**
- * スタート画面オーバーレイを描画する
- * 「▶ PLAY」ボタンと「SELECT STAGE」ボタンを表示
+ * アイテム取得時の全画面派手エフェクトを描画する
  */
-function drawStartOverlay(ctx: CanvasRenderingContext2D): void {
+function drawCollectEffect(ctx: CanvasRenderingContext2D, effect: CollectEffect): void {
+  if (effect.timer <= 0) return;
+  const ratio = effect.timer / effect.maxTimer; // 1.0→0
+
+  // 1. 全画面カラーオーバーレイ（明暗フラッシュ）
+  ctx.globalAlpha = ratio * 0.38;
+  ctx.fillStyle = effect.color;
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.globalAlpha = 1;
+
+  // 2. 収集位置から拡散する同心リング（3本）
+  for (let r = 0; r < 3; r++) {
+    const ringOffset = r * 0.28;
+    const ringRatio = Math.max(0, ratio - ringOffset);
+    if (ringRatio <= 0) continue;
+    const ringRadius = (1 - ringRatio) * 260 + 10;
+    const ringAlpha = ringRatio * 0.9;
+    ctx.globalAlpha = ringAlpha;
+    ctx.strokeStyle = effect.color;
+    ctx.lineWidth = 3 - r;
+    ctx.shadowColor = effect.color;
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(effect.x, effect.y, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+
+  // 3. 中央テキストアナウンス（ratio 0.4 でフルアルファに達し、その後フェードアウト）
+  const textAlpha = Math.min(ratio * 2.5, 1); // 2.5 = 1/0.4 (全体の前40%で最大輝度に達する)
+  if (textAlpha > 0.05) {
+    ctx.globalAlpha = textAlpha;
+    ctx.shadowColor = effect.color;
+    ctx.shadowBlur = 35;
+    ctx.fillStyle = effect.color;
+    ctx.font = 'bold 18px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(effect.label, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 16);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // 4. 収集位置にパルスサークル
+  const pulseAlpha = ratio * 0.8;
+  ctx.globalAlpha = pulseAlpha;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(effect.x, effect.y, 14 + (1 - ratio) * 30, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * アイテム凡例（6種類 × アイコン + 名称）を描画する
+ * スタート画面とポーズ画面の下部に表示する
+ */
+function drawItemLegend(ctx: CanvasRenderingContext2D): void {
+  // 順番: scan は Stage4 専用なので末尾に
+  const entries: ReadonlyArray<readonly [string, string]> = [
+    ['widepaddle', 'WIDE PADDLE'],
+    ['speeddown',  'SLOW BALL'],
+    ['speedup',    'SPEED UP'],
+    ['bigball',    'BIG BALL'],
+    ['extralife',  'EXTRA LIFE'],
+    ['scan',       'SCAN (ST.4)'],
+  ] as const;
+
+  const legendTop = 486;
+  const rowH = 21;
+  const col1X = 28;
+  const col2X = 252;
+
+  // 見出し
+  ctx.font = '7px "Press Start 2P", monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.textAlign = 'center';
+  ctx.fillText('─ ITEMS ─', CANVAS_WIDTH / 2, legendTop);
+
+  entries.forEach(([type, label], i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = col === 0 ? col1X : col2X;
+    const y = legendTop + 16 + row * rowH;
+    const color = ITEM_COLORS[type] ?? '#ffffff';
+    const icon  = ITEM_ICONS[type]  ?? '?';
+
+    // グロー付き円
+    ctx.globalAlpha = 0.9;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x + 8, y - 5, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // 内側を暗く
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.arc(x + 8, y - 5, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // アイコン
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, x + 8, y - 5);
+    ctx.textBaseline = 'alphabetic';
+
+    // ラベル
+    ctx.fillStyle = color;
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, x + 22, y);
+  });
+
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+}
+
+/**
+ * スタート画面オーバーレイを描画する
+ */
+function drawStartOverlay(ctx: CanvasRenderingContext2D, mousePos: MousePos): void {
   drawDimOverlay(ctx);
   drawTitle(ctx, 'BLOCK BREAKER', '#ff0055', 220);
 
-  drawButton(ctx, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H, '▶  PLAY', '#00ccff', false, 13);
-  drawButton(ctx, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H, 'SELECT STAGE', '#cc66ff', false, 10);
+  const playHovered = isHovered(mousePos, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H);
+  const selectHovered = isHovered(mousePos, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H);
+  drawButton(ctx, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H, '▶  PLAY', '#00ccff', false, 13, playHovered);
+  drawButton(ctx, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H, 'SELECT STAGE', '#cc66ff', false, 10, selectHovered);
 
   ctx.fillStyle = 'rgba(255,255,255,0.35)';
   ctx.font = '8px "Press Start 2P", monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('SWIPE / MOUSE: PADDLE', CANVAS_WIDTH / 2, 472);
+  ctx.fillText('SWIPE / MOUSE: PADDLE', CANVAS_WIDTH / 2, 466);
+
+  drawItemLegend(ctx);
 }
 
 /**
  * ステージ選択画面オーバーレイを描画する
  */
-function drawStageSelectOverlay(ctx: CanvasRenderingContext2D): void {
+function drawStageSelectOverlay(ctx: CanvasRenderingContext2D, mousePos: MousePos): void {
   drawDimOverlay(ctx);
   drawTitle(ctx, 'SELECT STAGE', '#cc66ff', 66);
 
   for (let i = 0; i < TOTAL_STAGES; i++) {
     const btnY = STAGE_BTN_FIRST_Y + i * (STAGE_BTN_H + STAGE_BTN_GAP);
     const color = STAGE_THEME_COLORS[i];
+    const hovered = isHovered(mousePos, STAGE_BTN_X, btnY, STAGE_BTN_W, STAGE_BTN_H);
 
-    // ボタン背景
     ctx.shadowColor = color;
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = hovered ? 16 : 8;
+    ctx.fillStyle = hovered ? `${color}22` : 'rgba(0,0,0,0.6)';
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = hovered ? 2 : 1.5;
     ctx.beginPath();
     ctx.roundRect(STAGE_BTN_X, btnY, STAGE_BTN_W, STAGE_BTN_H, 10);
     ctx.fill();
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // ステージ番号バッジ
     ctx.fillStyle = color;
     ctx.font = 'bold 14px "Press Start 2P", monospace';
     ctx.textAlign = 'left';
     ctx.fillText(`${i + 1}`, STAGE_BTN_X + 16, btnY + 28);
 
-    // ステージ名
     ctx.fillStyle = '#ffffff';
     ctx.font = '11px "Press Start 2P", monospace';
     ctx.fillText(STAGE_NAMES[i], STAGE_BTN_X + 48, btnY + 25);
 
-    // ギミックラベル
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '7px "Press Start 2P", monospace';
     ctx.fillText(STAGE_GIMMICK_LABELS[i], STAGE_BTN_X + 48, btnY + 46);
 
-    // 難易度バー（右端）
     const stars = STAGE_DIFFICULTIES[i];
     const starX = STAGE_BTN_X + STAGE_BTN_W - 16;
     for (let s = 0; s < 5; s++) {
@@ -430,7 +647,7 @@ function drawStageSelectOverlay(ctx: CanvasRenderingContext2D): void {
     }
   }
 
-  // 戻るボタン
+  const backHovered = isHovered(mousePos, STAGE_BACK_BTN_X, STAGE_BACK_BTN_Y, STAGE_BACK_BTN_W, STAGE_BACK_BTN_H);
   drawButton(
     ctx,
     STAGE_BACK_BTN_X,
@@ -441,6 +658,7 @@ function drawStageSelectOverlay(ctx: CanvasRenderingContext2D): void {
     'rgba(255,255,255,0.5)',
     false,
     10,
+    backHovered,
   );
 }
 
@@ -453,16 +671,19 @@ function drawEndOverlay(
   primaryLabel: string,
   primaryColor: string,
   showSelectStage: boolean,
+  mousePos: MousePos,
 ): void {
   drawDimOverlay(ctx);
   drawTitle(ctx, title, titleColor, 220);
 
   drawLines(ctx, [scoreText], 282);
 
-  drawButton(ctx, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H, primaryLabel, primaryColor, false, 10);
+  const playHovered = isHovered(mousePos, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H);
+  drawButton(ctx, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H, primaryLabel, primaryColor, false, 10, playHovered);
 
   if (showSelectStage) {
-    drawButton(ctx, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H, 'SELECT STAGE', '#cc66ff', false, 10);
+    const selectHovered = isHovered(mousePos, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H);
+    drawButton(ctx, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H, 'SELECT STAGE', '#cc66ff', false, 10, selectHovered);
   }
 }
 
@@ -475,13 +696,14 @@ export function drawFrame(
   particles: Particle[],
   popups: ScorePopup[],
   bgmEnabled: boolean,
+  mousePos: MousePos,
 ): void {
   const scanActive = state.scanTimer > 0;
 
   drawBackground(ctx);
 
   if (state.status === 'stageSelect') {
-    drawStageSelectOverlay(ctx);
+    drawStageSelectOverlay(ctx, mousePos);
     return;
   }
 
@@ -492,18 +714,27 @@ export function drawFrame(
   drawScorePopups(ctx, popups);
   drawPaddle(ctx, state);
   drawBall(ctx, state);
-  drawHUD(ctx, state, bgmEnabled);
+  drawHUD(ctx, state, bgmEnabled, mousePos);
+
+  // アイテム取得エフェクト（HUD より手前に重ねる）
+  if (state.collectEffect) {
+    drawCollectEffect(ctx, state.collectEffect);
+  }
+
+  const playHovered = isHovered(mousePos, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H);
+  const selectHovered = isHovered(mousePos, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H);
 
   switch (state.status) {
     case 'start':
-      drawStartOverlay(ctx);
+      drawStartOverlay(ctx, mousePos);
       break;
     case 'stopped':
       drawDimOverlay(ctx);
       drawTitle(ctx, 'PAUSED', '#ffcc00', 220);
       drawLines(ctx, [`SCORE: ${state.score}`], 272);
-      drawButton(ctx, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H, '▶  RESUME', '#ffcc00', false, 10);
-      drawButton(ctx, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H, 'SELECT STAGE', '#cc66ff', false, 10);
+      drawButton(ctx, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H, '▶  RESUME', '#ffcc00', false, 10, playHovered);
+      drawButton(ctx, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H, 'SELECT STAGE', '#cc66ff', false, 10, selectHovered);
+      drawItemLegend(ctx);
       break;
     case 'gameover':
       drawEndOverlay(
@@ -511,6 +742,7 @@ export function drawFrame(
         `SCORE: ${state.score}`,
         '▶  RETRY', '#00ccff',
         true,
+        mousePos,
       );
       break;
     case 'stageCleared':
@@ -518,8 +750,8 @@ export function drawFrame(
       drawTitle(ctx, `STAGE ${state.currentStage}`, '#00ccff', 195);
       drawTitle(ctx, 'CLEAR!', '#00ccff', 228);
       drawLines(ctx, [`SCORE: ${state.score}`], 272);
-      drawButton(ctx, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H, 'NEXT ▶', '#00ccff', false, 10);
-      drawButton(ctx, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H, 'SELECT STAGE', '#cc66ff', false, 10);
+      drawButton(ctx, BTN_PLAY_X, BTN_PLAY_Y, BTN_PLAY_W, BTN_PLAY_H, 'NEXT ▶', '#00ccff', false, 10, playHovered);
+      drawButton(ctx, BTN_SELECT_X, BTN_SELECT_Y, BTN_SELECT_W, BTN_SELECT_H, 'SELECT STAGE', '#cc66ff', false, 10, selectHovered);
       break;
     case 'victory':
       drawEndOverlay(
@@ -527,6 +759,7 @@ export function drawFrame(
         `FINAL SCORE: ${state.score}`,
         'PLAY AGAIN', '#00ff88',
         true,
+        mousePos,
       );
       break;
     case 'paused':

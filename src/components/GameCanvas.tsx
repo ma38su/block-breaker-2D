@@ -24,7 +24,6 @@ export function GameCanvas() {
         maxWidth: '100%',
         maxHeight: '100vh',
         aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
-        cursor: 'none',
         border: '2px solid rgba(0, 204, 255, 0.4)',
         boxShadow: '0 0 30px rgba(0, 204, 255, 0.3), 0 0 60px rgba(0, 204, 255, 0.1)',
       }}

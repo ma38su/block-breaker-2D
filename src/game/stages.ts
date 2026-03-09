@@ -252,7 +252,7 @@ export function createStage4(): StageData {
     normal(2, 6), normal(3, 6), normal(4, 6), normal(5, 6),
   ];
 
-  // スキャンアイテム：ステージ中央付近に配置
+  // スキャンアイテム：ステージ中央付近に静止配置（ランダムドロップなし、ここだけ）
   const items: Item[] = [
     {
       x: bx(1) + BLOCK_WIDTH / 2,
@@ -260,6 +260,7 @@ export function createStage4(): StageData {
       radius: 10,
       type: 'scan',
       alive: true,
+      vy: 0,
     },
     {
       x: bx(6) + BLOCK_WIDTH / 2,
@@ -267,6 +268,7 @@ export function createStage4(): StageData {
       radius: 10,
       type: 'scan',
       alive: true,
+      vy: 0,
     },
   ];
 

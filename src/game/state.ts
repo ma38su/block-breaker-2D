@@ -37,5 +37,10 @@ export function createInitialState(stage = 1): GameState {
     obstacles: stageData.obstacles,
     items: stageData.items,
     scanTimer: 0,
+    widePaddleTimer: 0,
+    slowBallTimer: 0,
+    speedUpTimer: 0,
+    bigBallTimer: 0,
+    collectEffect: null,
   };
 }

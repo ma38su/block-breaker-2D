@@ -94,14 +94,45 @@ export interface MovingObstacle {
   angularSpeed: number;
 }
 
-/** フィールド上のアイテム（スキャンアイテムなど） */
+/**
+ * アイテムの種類
+ * - scan       : 透明ブロックを一定時間可視化（ステージ4専用配置）
+ * - widepaddle : パドルを一定時間拡幅
+ * - speeddown  : ボールを一定時間減速
+ * - extralife  : ライフ+1（即時効果）
+ * - speedup    : ボールを一定時間加速
+ * - bigball    : ボールを一定時間拡大
+ */
+export type ItemType = 'scan' | 'widepaddle' | 'speeddown' | 'extralife' | 'speedup' | 'bigball';
+
+/** フィールド上のアイテム */
 export interface Item {
   x: number;
   y: number;
+  /** 落下速度（px/フレーム）。0 = 静止アイテム */
+  vy: number;
   radius: number;
-  /** アイテムの種類: 'scan' = 透明ブロックを一定時間可視化 */
-  type: 'scan';
+  type: ItemType;
   alive: boolean;
+}
+
+/**
+ * アイテム取得時の全画面派手エフェクトの状態
+ */
+export interface CollectEffect {
+  type: ItemType;
+  /** 残りフレーム数（0で消去） */
+  timer: number;
+  /** 生成時のフレーム数（フェード計算用） */
+  maxTimer: number;
+  /** エフェクト色 */
+  color: string;
+  /** 取得座標 X */
+  x: number;
+  /** 取得座標 Y */
+  y: number;
+  /** 画面に表示するラベル */
+  label: string;
 }
 
 /** フレームごとに参照するゲーム全体の状態 */
@@ -121,6 +152,16 @@ export interface GameState {
   items: Item[];
   /** スキャンエフェクトの残りフレーム数（0以下で無効） */
   scanTimer: number;
+  /** ワイドパドルの残りフレーム数（0 = 無効） */
+  widePaddleTimer: number;
+  /** ボール減速の残りフレーム数（0 = 無効） */
+  slowBallTimer: number;
+  /** ボール加速の残りフレーム数（0 = 無効） */
+  speedUpTimer: number;
+  /** ボール拡大の残りフレーム数（0 = 無効） */
+  bigBallTimer: number;
+  /** アイテム取得時の全画面エフェクト（null = 非表示） */
+  collectEffect: CollectEffect | null;
 }
 
 /** キーボード入力の押下状態を追跡する型 */
